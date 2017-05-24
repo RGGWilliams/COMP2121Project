@@ -1,0 +1,56 @@
+<ASSEMBLER_INFO>
+ <VERSION>2.2.6</VERSION>
+ <DEVICE>"ATmega2560"</DEVICE>
+ <WORKING_DIR>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\Debug</WORKING_DIR>
+ <INCLUDE_PATH>
+  <DIR>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.0.106\avrasm\inc</DIR>
+  <DIR>C:\Program Files (x86)\Atmel\Studio\7.0\toolchain\avr8\avrassembler\Include</DIR>
+  <DIR></DIR>
+ </INCLUDE_PATH>
+ <SOURCE_FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</SOURCE_FILE>
+ <INCLUDED_FILES>
+  <FILE>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.0.106\avrasm\inc\m2560def.inc</FILE>
+ </INCLUDED_FILES>
+ <OBJECT_FILES>
+  <FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\Debug\Lab05.obj</FILE>
+ </OBJECT_FILES>
+ <HEX_FILES>
+  <FILE>Lab05.hex</FILE>
+ </HEX_FILES>
+ <OUTPUT_FILES>
+  <FILE>Lab05.map</FILE>
+  <FILE>Lab05.lss</FILE>
+ </OUTPUT_FILES>
+ <LABELS>
+  <TempCounter><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>86</LINE></TempCounter>
+  <digits><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>88</LINE></digits>
+  <RESET><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>111</LINE></RESET>
+  <DEFAULT><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>107</LINE></DEFAULT>
+  <EXT_INT2><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>230</LINE></EXT_INT2>
+  <Timer0OVF><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>175</LINE></Timer0OVF>
+  <lcd_command><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>249</LINE></lcd_command>
+  <lcd_wait><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>269</LINE></lcd_wait>
+  <sleep_5ms><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>307</LINE></sleep_5ms>
+  <sleep_1ms><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>294</LINE></sleep_1ms>
+  <lcd_data><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>258</LINE></lcd_data>
+  <main><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>161</LINE></main>
+  <loop><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>172</LINE></loop>
+  <NotSecond><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>216</LINE></NotSecond>
+  <convert_digits><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>317</LINE></convert_digits>
+  <EndIF><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>220</LINE></EndIF>
+  <lcd_wait_loop><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>276</LINE></lcd_wait_loop>
+  <delayloop_1ms><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>300</LINE></delayloop_1ms>
+  <checkHundreds><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>322</LINE></checkHundreds>
+  <hundredsDigit><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>365</LINE></hundredsDigit>
+  <pushHundredsDigit><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>376</LINE></pushHundredsDigit>
+  <checkTensInit><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>328</LINE></checkTensInit>
+  <checkTens><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>330</LINE></checkTens>
+  <tensDigit><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>371</LINE></tensDigit>
+  <pushTensDigit><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>381</LINE></pushTensDigit>
+  <saveOnes><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>340</LINE></saveOnes>
+  <dispThreeDigits><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>386</LINE></dispThreeDigits>
+  <dispTwoDigits><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>395</LINE></dispTwoDigits>
+  <dispOneDigit><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>402</LINE></dispOneDigit>
+  <endDisplayDigits><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05\Lab05\main.asm</FILE><LINE>357</LINE></endDisplayDigits>
+ </LABELS>
+</ASSEMBLER_INFO>

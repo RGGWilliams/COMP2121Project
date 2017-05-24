@@ -1,0 +1,39 @@
+<ASSEMBLER_INFO>
+ <VERSION>2.2.6</VERSION>
+ <DEVICE>"ATmega2560"</DEVICE>
+ <WORKING_DIR>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\Debug</WORKING_DIR>
+ <INCLUDE_PATH>
+  <DIR>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.2.132\avrasm\inc</DIR>
+  <DIR>C:\Program Files (x86)\Atmel\Studio\7.0\toolchain\avr8\avrassembler\Include</DIR>
+  <DIR></DIR>
+ </INCLUDE_PATH>
+ <SOURCE_FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</SOURCE_FILE>
+ <INCLUDED_FILES>
+  <FILE>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.2.132\avrasm\inc\m2560def.inc</FILE>
+ </INCLUDED_FILES>
+ <OBJECT_FILES>
+  <FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\Debug\Lab05B.obj</FILE>
+ </OBJECT_FILES>
+ <HEX_FILES>
+  <FILE>Lab05B.hex</FILE>
+ </HEX_FILES>
+ <OUTPUT_FILES>
+  <FILE>Lab05B.map</FILE>
+  <FILE>Lab05B.lss</FILE>
+ </OUTPUT_FILES>
+ <LABELS>
+  <SecondCounter><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>21</LINE></SecondCounter>
+  <TempCounter><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>23</LINE></TempCounter>
+  <RESET><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>37</LINE></RESET>
+  <DEFAULT><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>35</LINE></DEFAULT>
+  <Timer3OVF><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>46</LINE></Timer3OVF>
+  <main><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>121</LINE></main>
+  <newSecond><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>58</LINE></newSecond>
+  <NotSecond><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>105</LINE></NotSecond>
+  <showPattern><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>68</LINE></showPattern>
+  <reloadPattern><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>94</LINE></reloadPattern>
+  <EndIF><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>109</LINE></EndIF>
+  <setCarry><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>100</LINE></setCarry>
+  <loop><FILE>C:\Users\Rhys\OneDrive\UNSW\Y3Sem1\COMP2121\Labs\Lab05B\Lab05B\main.asm</FILE><LINE>170</LINE></loop>
+ </LABELS>
+</ASSEMBLER_INFO>
