@@ -23,8 +23,8 @@
 .endmacro
 
 .dseg
-SecondCounter: .byte 2
-TempCounter: .byte 2
+UpdateCounter: .byte 2	;Used to count how many times we've updated the brightness
+TempCounter: .byte 2	;Count number of timer interrupts
 
 .cseg
 .org 0x0000
@@ -43,7 +43,7 @@ RESET:
 	ldi temp, low(RAMEND)
 	out SPL, temp
 	ser temp
-	out DDRC, temp	;set port C as output
+	out DDRC, temp	;set port C as output (the LED)
 	rjmp main
 
 Timer3OVF:	;interrupt handler for Timer0
@@ -58,41 +58,41 @@ Timer3OVF:	;interrupt handler for Timer0
 	lds r25, TempCounter+1
 	adiw r25:r24, 1
 
-	cpi r24, low(7812)	;Check to see if one second has passed
-	cpi temp, high(7812)
+	cpi r24, low(976)		;Check to see if one 16th of a second has passed (TODO not sure if value is correct b/c no prescaling now)
+	cpi temp, high(976)		;as will update brightness that often because OCR is a 16bit register
 	cpc r25, temp
-	brne NotSecond
+	brne NotSixteenth
 
 	clear TempCounter
 
-	;set brightness
-	sts OCR3BL, brightness_h
-	;change brightness
+	;change brightness by shifting max brightness pattern right and adding zeroes at front
 	lsr brightness_h
 	ror brightness_l
 
-	lds r24, SecondCounter
-	lds r25, SecondCounter+1
+	;set brightness
+	sts OCR3BL, brightness_l
+	sts OCR3BH, brightness_h
+
+	lds r24, UpdateCounter
+	lds r25, UpdateCounter+1
 	adiw r25:r24, 1
 
-	sts SecondCounter, r24
-	sts SecondCounter+1, r25
+	sts UpdateCounter, r24
+	sts UpdateCounter+1, r25
 
 	ldi r19, high(16)		;check if one second has passed to reset
 	cpi r24, low(16)
 	cpc r25, r19
 	brne EndIF
-	rjmp reload_pattern
-
-	rjmp EndIF
+	rjmp reload_pattern		;if one second has passed reload the max brightness
 
 	reload_pattern:
 		ldi brightness_h, high(max_brightness)
 		ldi brightness_l, low(max_brightness)
-		clear SecondCounter
+		clear UpdateCounter
 		rjmp EndIF
 
-	NotSecond:
+	NotSixteenth:
 		sts TempCounter, r24
 		sts TempCounter+1, r25
 
@@ -107,39 +107,39 @@ Timer3OVF:	;interrupt handler for Timer0
 
 main:
 
-	ser temp
-	out DDRC, brightness_h	;set port C for output
 	ldi brightness_h, high(max_brightness)
 	ldi brightness_l, low(max_brightness)
 
 	clear TempCounter	;intitialise temp counter
-	clear SecondCounter		;intialise second counter
+	clear UpdateCounter		;intialise second counter
 
 	ldi temp, (1<<WGM30)|(1<<COM3B1)	;Set timer 3 to phase correct PWM mode
 	sts TCCR3A, temp
-	ldi temp, (1 << CS00)	;no prescaling
+	ldi temp, (1 << CS30)	;no prescaling
 	sts TCCR3B, temp		
-	ldi temp, 1<<TOIE3	
-	sts TIMSK3, temp		;T/C0 interrupt enabled
+	ldi temp, (1<<TOIE3)	;T/C3 interrupt enabled
+	sts TIMSK3, temp	
+	sei	
 
 	;PWM set up
 	ldi temp, 0b00001000
 	sts DDRL, temp			;Bit 3 will function as OC3B
 
-	ldi temp, 0x4A			;the value controls the PWM duty cycle
-	sts OCR3AL, temp
-	clr temp
-	sts OCR5AH, temp
+	;ldi temp, 0xFF			;Unsure what the difference is between OCR3A and OCR3B
+	;sts OCR3AL, temp
+	;clr temp
+	;sts OCR5AH, temp
 
 	;Set bit PE2 as output
 	ser temp
-	out DDRE, temp	;so PE2 can function as OC3B
-	ldi temp, 0xFF
+	out DDRE, temp	;so PE2 can function as OC3B (as output)
+	ldi temp, 0xFF	;the value controls the PWM duty cycle start at highest (highest brightness)
 	sts OCR3BL, temp
 	clr temp
 	sts OCR3BH, temp
 
-	sei
+done_loop:
+	rjmp done_loop
 		
 
 
