@@ -1,0 +1,510 @@
+
+.include "m2560def.inc"
+
+; Delay Constants
+.equ F_CPU = 16000000                               ; 16MHz
+.equ DELAY_1MS = F_CPU / 4 / 1000 - 4 				; 4 cycles per iteration - setup/call-return overhead
+
+; LCD Instructions
+;As plugged into our board
+.equ LCD_RS = 7										; Register Select				
+.equ LCD_E = 6										;Enable pin - Operation start signal for data read/write
+.equ LCD_RW = 5										;Signal to select Read or Write  ["0": Write; "1": Read]
+.equ LCD_BE = 4
+
+.set LCD_DISP_ON = 0b00001110
+.set LCD_DISP_OFF = 0b00001000
+.set LCD_DISP_CLR = 0b00000001
+.set LCD_FUNC_SET = 0b00111000 						; 2 lines, 5 by 7 characters
+.set LCD_ENTR_SET = 0b00000110 						; increment, no display shift
+.set LCD_HOME_LINE = 0b10000000 					; goes to 1st line (address 0)
+.set LCD_SEC_LINE = 0b10101000 						; goes to 2nd line (address 40)
+
+
+; LCD Macros
+
+.macro do_lcd_command
+	ldi r16, @0										;saves to r16
+	rcall lcd_command								;goes to LCD Command macro 
+	rcall lcd_wait									; wait... LCD is slow
+.endmacro
+
+.macro do_lcd_command_reg
+	mov r16, @0										; saves t0 r16
+	rcall lcd_command								; goes to LCD data macro
+	rcall lcd_wait									; wait ... LCD is slow
+.endmacro
+
+.macro do_lcd_data
+	ldi r16, @0
+	rcall lcd_data
+	rcall lcd_wait
+.endmacro
+
+.macro do_lcd_data_reg
+	mov r16, @0
+	rcall lcd_data
+	rcall lcd_wait
+.endmacro
+
+.macro lcd_set
+	sbi PORTA, @0									;set bit in I/O register
+.endmacro
+
+.macro lcd_clr
+	cbi PORTA, @0									; clear bit in I?O register
+.endmacro
+
+
+; General
+.def param = r16
+.def speedL = r17
+.def speedH = r18
+.def temp1 = r22
+.def temp2 = r23
+.def address = r24
+
+.dseg
+	rps: .byte 2
+
+	isPrinted: .byte 1
+	digit5: .byte 1
+	digit4: .byte 1
+	digit3: .byte 1
+	digit2: .byte 1
+	digit: .byte 1
+
+	SecondCounter: .byte 2
+	TempCounter: .byte 2
+
+.cseg
+; Vector Table
+
+.org 0x0000
+	jmp RESET
+	jmp DEFAULT						; IRQ0 Handler
+	jmp DEFAULT						; IRQ1 Handler
+	jmp EXT_INT2 					; IRQ2 Handler
+
+DEFAULT:
+	reti							; used for interrupts that are not handled
+
+RESET:
+	ldi r16, low(RAMEND)							; set up the stack
+	out SPL, r16
+	ldi r16, high(RAMEND)
+	out SPH, r16
+
+	ser r16 										; set PORTF(LCD Data) and PORTA(LCD Control) to output (LCD)
+	out DDRF, r16
+	out DDRA, r16
+	clr r16											; clear PORTF and PORTA registers
+	out PORTF, r16
+	out PORTA, r16
+
+	clr r16
+	out DDRD, r16 									; set PORTD (INT2/TDX2) to input
+
+	ldi temp1, (2 << ISC20) 						; set INT2 to trigger on falling edges
+	sts EICRA, temp1
+	ldi temp1, (1 << INT2) 							; enable INT2
+	out EIMSK, temp1
+
+	do_lcd_command LCD_FUNC_SET 					; initialise LCD
+	rcall sleep_5ms
+	do_lcd_command LCD_FUNC_SET
+	rcall sleep_1ms
+
+	do_lcd_command LCD_FUNC_SET
+	do_lcd_command LCD_FUNC_SET
+	do_lcd_command LCD_DISP_OFF
+	do_lcd_command LCD_DISP_CLR
+	do_lcd_command LCD_ENTR_SET
+	do_lcd_command LCD_DISP_ON  
+
+	ldi temp1, LCD_HOME_LINE					; initialise variables
+	mov address, temp1
+	clr speedL
+	clr speedH
+
+	clr temp1
+	sts TempCounter, temp1 							; initialise temporary counter to 0
+	sts TempCounter + 1, temp1
+	sts SecondCounter, temp1 						; initialise second counter to 0
+	sts SecondCounter + 1, temp1
+	ldi temp1, 0b00000010
+	out TCCR0B, temp1 								; set prescaler to 8 = 128 microseconds
+	ldi temp1, 1 << TOIE0 							; enable timer
+	sts TIMSK0, temp1
+	sei
+
+
+halt:
+	jmp halt
+
+
+EXT_INT2:											;dealing with the potentiometer
+	push temp1
+
+	ldi temp1, 1
+	add speedL, temp1
+	ldi temp1, 0
+	adc speedH, temp1
+
+	INT2_END:
+	pop temp1
+	reti
+
+
+UPDATE_LCD:
+	push temp1
+
+	ldi address,  LCD_HOME_LINE
+	rcall write_digits
+
+	clr speedL
+	clr speedH
+
+	UPDATE_LCD_END:
+	pop temp1
+	reti
+
+
+
+Timer0OVF:						; interrupt subroutine to Timer0
+
+	in temp1, SREG
+	push temp1 					; save conflict registers
+	push r25
+	push r24
+
+	lds r24, TempCounter 		; load value of temporary counter
+	lds r25, TempCounter + 1
+	adiw r25:r24, 1 			; increase temporary counter by 1
+
+	cpi r24, low(3906)			; here use 7812 = 10^6/128 for 1 second
+	ldi temp1, high(3906) 		; use 3906 for 0.5 seconds
+	cpc r25, temp1
+	brne notSecond 				; if they're not equal, jump to notSecond
+
+	;0.5 seconds has passed
+	ldi address, LCD_HOME_LINE
+	asr speedH				; need to multiply number by 2 to give revolutions per SECOND
+	ror speedL  			; need to divide by 4 to account for 4 holes
+
+	do_lcd_command LCD_DISP_CLR
+	rcall write_digits
+	clr speedL
+	clr speedH
+
+	clr temp1
+	sts TempCounter, temp1				; reset temporary counter
+	sts TempCounter + 1, temp1
+	lds r24, SecondCounter 		; load second counter and increase since 1 second has expired
+	lds r25, SecondCounter + 1
+	adiw r25:r24, 1 			; increase second counter by 1
+
+	sts SecondCounter, r24
+	sts SecondCounter + 1, r25
+	rjmp END
+
+	notSecond:
+		sts TempCounter, r24		; store new value of temporary counter
+		sts TempCounter + 1, r25
+
+	END:
+		pop r24
+		pop r25
+		pop temp1
+		out SREG, temp1
+		reti 						; return from interrupt
+
+
+
+; LCD Commands
+lcd_command:
+	out PORTF, r16					;Port F is LCD data, r16 sent to LCD
+	rcall sleep_1ms
+	lcd_set LCD_E					;Enable bit set so it does the command
+	rcall sleep_1ms
+	lcd_clr LCD_E					;Enable bit cleared
+	rcall sleep_1ms
+	ret
+
+lcd_data:
+	out PORTF, r16					;r16 contains the data being outputted
+	lcd_set LCD_RS					; Set top bit (bit 7) of LCD Control (Port A) 
+									; this determines read/ write to the LCD
+	rcall sleep_1ms					;wait ... LCD is slow
+	lcd_set LCD_E					;Set bit 6
+	rcall sleep_1ms
+	lcd_clr LCD_E
+	rcall sleep_1ms
+	lcd_clr LCD_RS
+	ret
+
+lcd_wait:
+	push r16
+	clr r16
+	out DDRF, r16
+	out PORTF, r16
+	lcd_set LCD_RW
+
+lcd_wait_loop:
+	rcall sleep_1ms
+	lcd_set LCD_E
+	rcall sleep_1ms
+	in r16, PINF
+	lcd_clr LCD_E
+	sbrc r16, 7
+	rjmp lcd_wait_loop
+	lcd_clr LCD_RW
+	ser r16
+	out DDRF, r16
+	pop r16
+	ret
+
+; Delay commands
+
+sleep_1ms:
+	push r24
+	push r25
+	ldi r25, high(DELAY_1MS)
+	ldi r24, low(DELAY_1MS)
+
+delayloop_1ms:
+	sbiw r25:r24, 1
+	brne delayloop_1ms
+	pop r25
+	pop r24
+	ret
+
+
+sleep_5ms:
+	rcall sleep_1ms
+	rcall sleep_1ms
+	rcall sleep_1ms
+	rcall sleep_1ms
+	rcall sleep_1ms
+	ret
+
+
+sleep_20ms:
+	rcall sleep_5ms
+	rcall sleep_5ms
+	rcall sleep_5ms
+	rcall sleep_5ms
+	rcall sleep_5ms
+	ret
+
+
+write_digits:
+	push speedH
+	push speedL
+	push temp1
+
+	clr temp1
+	sts isPrinted, temp1 							; 0 if not printed, 1 if printed
+	sts digit5, temp1
+	sts digit4, temp1
+	sts digit3, temp1
+	sts digit2, temp1
+	sts digit, temp1
+
+	writeTenThousands:
+		mov temp1, speedL
+		cpi temp1, low(10000) 						; check that numberH:numberL > 10000
+		ldi temp1, high(10000)
+		cpc speedH, temp1
+		brlo writeThousands							;if less then branch ; max will be thousands
+
+		TenThousandLoop:
+			mov temp1, speedL
+			cpi temp1, low(10000) 					; if < 10000, display ten thousands digit
+			ldi temp1, high(10000)
+			cpc speedH, temp1
+			brlo displayTenThousands
+
+			mov temp1, speedL						; decrement parameter by 10000
+			subi temp1, low(10000)
+			mov speedL, temp1
+			mov temp1, speedH
+			sbci temp1, high(10000)
+	mov speedH, temp1		   
+			lds temp1, digit5 						; increment ten thousands digit counter
+			inc temp1
+			sts digit5, temp1
+			jmp TenThousandLoop
+
+		displayTenThousands:
+			lds temp1, digit5 						; only print if ten thousands digit counter > 0
+			cpi temp1, 0
+			breq writeThousands
+
+			lds temp1, isPrinted 					; set isPrinted to 1
+			ldi temp1, 1
+			sts isPrinted, temp1
+
+			lds temp1, digit5 						; convert to ASCII
+			subi temp1, -'0'
+			do_lcd_command_reg address
+			inc address
+			do_lcd_data_reg temp1
+
+	writeThousands:
+		mov temp1, speedL
+		cpi temp1, low(1000) 						; check that numberH:numberL > 1000
+		ldi temp1, high(1000)
+		cpc speedH, temp1
+		brlo spaceThousands
+
+		ThousandLoop:
+			mov temp1, speedL
+			cpi temp1, low(1000) 					; if < 1000, display thousands digit
+			ldi temp1, high(1000)
+			cpc speedH, temp1
+			brlo displayThousands
+
+			mov temp1, speedL					; decrement parameter by 1000
+			subi temp1, low(1000)
+			mov speedL, temp1
+    		mov temp1, speedH
+			sbci temp1, high(1000)
+			mov speedH, temp1	   
+
+			lds temp1, digit4 						; increment thousands digit counter
+			inc temp1
+			sts digit4, temp1		 
+			jmp ThousandLoop
+
+		displayThousands:
+			lds temp1, digit4 						; print if thousands digit counter > 0
+			cpi temp1, 0
+			breq writeHundreds
+
+			lds temp1, isPrinted 					; set isPrinted to 1
+			ldi temp1, 1
+			sts isPrinted, temp1
+
+			lds temp1, digit4 						; convert to ASCII
+			subi temp1, -'0'
+			do_lcd_command_reg address
+			inc address
+			do_lcd_data_reg temp1
+			jmp writeHundreds
+
+		spaceThousands:
+			lds temp1, isPrinted
+			cpi temp1, 0
+			breq writeHundreds
+			do_lcd_command_reg address
+			inc address
+			do_lcd_data '0'
+
+	writeHundreds:
+		mov temp1, speedL
+		cpi temp1, low(100) 						; check that numberH:numberL > 100
+		ldi temp1, high(100)
+		cpc speedH, temp1
+		brlo spaceHundreds
+
+		HundredLoop:
+			mov temp1, speedL
+			cpi temp1, low(100) 					; if < 100, display hundreds digit
+			ldi temp1, high(100)
+			cpc speedH, temp1
+			brlo displayHundreds
+
+			mov temp1, speedL						; decrement parameter by 100
+			subi temp1, low(100)
+			mov speedL, temp1
+			mov temp1, speedH
+			sbci temp1, high(100)
+			mov speedH, temp1	   
+
+			lds temp1, digit3 						; increment hundreds digit counter
+			inc temp1
+			sts digit3, temp1
+			jmp HundredLoop
+
+		displayHundreds:
+			lds temp1, digit3 						; only print if hundreds digit counter > 0
+			cpi temp1, 0
+			breq writeTens
+
+			lds temp1, isPrinted 					; set isPrinted to 1
+			ldi temp1, 1
+			sts isPrinted, temp1
+
+			lds temp1, digit3 						; convert to ASCII
+			subi temp1, -'0'
+			do_lcd_command_reg address
+			inc address
+			do_lcd_data_reg temp1
+			jmp writeTens
+
+	
+		spaceHundreds:
+			lds temp1, isPrinted
+			cpi temp1, 0
+			breq writeTens
+			do_lcd_command_reg address
+			inc address
+			do_lcd_data '0'
+
+	writeTens:
+		mov temp1, speedL
+		cpi temp1, 10 								; check that numberH:numberL >= 10
+		brlo spaceTens
+
+		TenLoop:
+			mov temp1, speedL
+			cpi temp1, 10 							; if < 10, display tens digit
+			brlo displayTens
+
+			mov temp1, speedL		;rement parameter by 10
+			subi temp1, low(10)
+			mov speedL, temp1
+			mov temp1, speedH
+			sbci temp1, high(10)
+			mov speedH, temp1
+
+			lds temp1, digit2 						; increment tens digit counter
+			inc temp1
+			sts digit2, temp1	   
+
+			jmp TenLoop
+
+		displayTens:
+			lds temp1, digit2 						; only print if tens digit counter > 0
+			cpi temp1, 0
+			breq writeOnes
+
+			lds temp1, digit2 						; convert to ASCII
+			subi temp1, -'0'
+			do_lcd_command_reg address
+			inc address
+			do_lcd_data_reg temp1
+			jmp writeOnes
+
+		spaceTens:
+			lds temp1, isPrinted
+			cpi temp1, 0
+			breq writeOnes
+			do_lcd_command_reg address
+			inc address
+			do_lcd_data '0'
+
+	writeOnes:								; write remaining digit to LCD
+		mov temp1, speedL
+		subi temp1, -'0' 							; convert to ASCII
+		do_lcd_command_reg address
+		inc address	
+		do_lcd_data_reg temp1
+
+
+	write_digits_END:
+	pop temp1
+	pop speedL
+	pop speedH
+	ret
