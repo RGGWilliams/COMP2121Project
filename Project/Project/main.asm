@@ -99,6 +99,15 @@
 	SecondCounter: .byte 2
 	TempCounter: .byte 2
 	DebounceCounter: .byte 2	;Used to determine if 50ms has passed for push button pressing
+	Item1: .byte 2				;Item stores where first byte is the inventory count and the second byte is the coin cost 
+	Item2: .byte 2				;Coin cost accessed by eg Item1+1
+	Item3: .byte 2
+	Item4: .byte 2
+	Item5: .byte 2
+	Item6: .byte 2
+	Item7: .byte 2
+	Item8: .byte 2
+	Item9: .byte 2
 
 .cseg
 .org 0x0000
@@ -125,8 +134,10 @@ RESET:
 	sts DDRL, temp1	
 
 	;LEDs
-	ser temp1	;set PORTC (LEDS) as output
+	ser temp1	;set PORTC (LEDs) as output
 	out DDRC, temp1
+	ldi temp1, 0b00110000	;set PG2 and PG3 as output (the other LEDs)
+	out DDRG, temp1
 
 	;Button interrupt
 	ldi temp1, (2<<ISC00)	;set INT0 as falling-edge interrupt
@@ -176,6 +187,17 @@ RESET:
 
 	ldi temp1, LCD_HOME_LINE					; initialise variables
 	mov address, temp1
+
+	;Item counts
+	clear Item1
+	clear Item2
+	clear Item3
+	clear Item4
+	clear Item5
+	clear Item6
+	clear Item7
+	clear Item8
+	clear Item9
 
 	;TODO other parts
 
