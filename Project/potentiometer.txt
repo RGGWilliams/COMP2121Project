@@ -1,0 +1,143 @@
+
+.def coins_needed = r8
+
+.cseg
+.org 0x0000
+	jmp EXT_INT2 					; IRQ2 Handler
+
+DEFAULT:
+	reti							; used for interrupts that are not handled
+
+RESET:
+	ldi temp1, (2 << ISC20) 					; set INT2 to trigger on rising edge between two INTn
+	sts EICRA, temp1
+	ldi temp1, (1 << INT2) 							; enable INT2
+	out EIMSK, temp1
+
+	clr coins_needed				
+
+	clr temp1
+	sts TempCounter, temp1 							; initialise temporary counter to 0
+	sts TempCounter + 1, temp1
+	sts SecondCounter, temp1 						; initialise second counter to 0
+	sts SecondCounter + 1, temp1
+	ldi temp1, 0b00000010
+	out TCCR1B, temp1 								; set prescaler to 8 = 128 microseconds
+	ldi temp1, 1 << TOIE1 							; enable timer
+	sts TIMSK1, temp1
+	sei
+
+
+	
+halt:
+	jmp halt
+
+
+EXT_INT2:										;dealing with the potentiometer
+	
+	dec coins_needed
+	cpi coins_needed, 0
+	breq deliver_screen
+	; ???? rjmp EXT_INT2
+
+
+
+initialiseMotor:
+	push temp1
+						; set PE4 (OC3B) to output
+	ser temp1
+	out DDRE, temp1
+
+	ldi temp1, 1 									; initialise the power variable
+	sts PowerValue, temp1
+
+	clr temp1
+	sts rps, temp1
+
+	pop temp1
+	ret
+
+startMotor:
+	push temp1
+	
+	ldi temp1, 1 << TOIE0 							; enable timer
+	sts TIMSK0, temp1
+	ldi temp1, low(INIT_RPS)						; start motor
+	sts OCR3AH, temp1
+	ldi temp1, high(INIT_RPS)
+	sts OCR3AL, temp1
+	
+	pop temp1
+	ret
+
+stopMotor:
+	push temp1
+	
+	ldi temp1, 0 << TOIE0 							; disable timer
+	sts TIMSK0, temp1
+	clr temp1										; stop motor
+	sts OCR3AH, temp1
+	sts OCR3AL, temp1
+	
+	pop temp1
+	ret
+
+/*
+;to do the o.25 s for return coins and 
+; 3 sec motor spin
+
+
+Timer1OVF:						; interrupt subroutine to Timer0
+
+	in temp1, SREG
+	push temp1 					; save conflict registers
+	push r25
+	push r24
+
+	lds r24, TempCounter 		; load value of temporary counter
+	lds r25, TempCounter + 1
+	adiw r25:r24, 1 			; increase temporary counter by 1
+
+	cpi r24, low(3906)			; here use 7812 = 10^6/128 for 1 second
+	ldi temp1, high(3906) 		; use 3906 for 0.5 seconds
+	cpc r25, temp1
+	brne notSecond 				; if they're not equal, jump to notSecond
+
+	;0.5 seconds has passed
+	ldi address, LCD_HOME_LINE
+	asr speedH				; need to multiply number by 2 to give revolutions per SECOND
+	ror speedL  			; need to divide by 4 to account for 4 holes
+
+	do_lcd_command LCD_DISP_CLR
+	rcall write_digits
+	clr speedL
+	clr speedH
+
+	clr temp1
+	sts TempCounter, temp1				; reset temporary counter
+	sts TempCounter + 1, temp1
+	lds r24, SecondCounter 		; load second counter and increase since 1 second has expired
+	lds r25, SecondCounter + 1
+	adiw r25:r24, 1 			; increase second counter by 1
+
+	sts SecondCounter, r24
+	sts SecondCounter + 1, r25
+	rjmp END
+
+	notSecond:
+		sts TempCounter, r24		; store new value of temporary counter
+		sts TempCounter + 1, r25
+
+	END:
+		pop r24
+		pop r25
+		pop temp1
+		out SREG, temp1
+		reti 						; return from interrupt
+
+*/
+
+
+
+
+
