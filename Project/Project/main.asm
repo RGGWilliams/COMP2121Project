@@ -209,6 +209,9 @@ RESET:
 
 	jmp start_screen
 
+halt:
+	rjmp halt
+
 ;INTERRUPTS-----------------------------------------------------
 ;Button Interrupts-----------
 EXT_INT0:
@@ -281,8 +284,6 @@ Timer0OVF:
 	push temp2
 	in temp1, SREG ;Save status register
 	push temp1
-	push YH
-	push YL
 	push r25
 	push r24
 
@@ -370,23 +371,26 @@ Timer0OVF:
 	select_timer:
 		ldi temp1, 1
 		cp star_pressed, temp1		;if star has been pressed then start a new timer
+		brne ENDIF_hop
+
+		cpi new_screen_flag, 1
 		breq new_select_timer
 
-		cpi r24, low(7812)
+		cpi r24, low(7812)			;check if one second has passed
 		ldi temp1, high(7812)
 		cpc r25, temp1
-		brne NotSecond
-		inc second_counter
+		brne NotSecond				;if not jump to not second and store tempcounter
+		inc second_counter			;if so increment the number of seconds had and clear TempCounter to count the next second
+		clear TempCounter
 		ldi temp1, 5
-		cp second_counter, temp1
-		brne EndIF
-		ldi temp1, 1
-		cp star_pressed, temp1
+		cp second_counter, temp1	;if this is now 5 seconds then go to admin screen else
 		brne EndIF
 		rjmp admin_screen
 
 		new_select_timer:
 			clear TempCounter	;start 'new' timer
+			clr second_counter
+			ldi new_screen_flag, 0
 			rjmp EndIF
 
 		NotSecond:
@@ -394,6 +398,9 @@ Timer0OVF:
 			sts TempCounter+1, r25
 			rjmp EndIF	
 
+	ENDIF_hop:
+		jmp ENDIF
+	
 	empty_timer:
 		cpi new_screen_flag, 1	;if screen has just been changed to start screen then start a new timer
 		breq new_empty_timer
@@ -434,8 +441,6 @@ Timer0OVF:
 EndIF:
 	pop r24
 	pop r25
-	pop YL
-	pop YH
 	pop temp1
 	out SREG, temp1
 	pop temp2
@@ -608,10 +613,18 @@ symbols:
 
 	symbols_select:
 		cpi col, 0
+		breq star_pushed
+		jmp keypad_prologue
+
+	star_pushed:
+		ldi temp1, 0
+		cp star_pressed, temp1
 		brne keypad_prologue_hop
+		ldi new_screen_flag, 1			;using new_screen_flag as flag to show that star pushed for first time so should start a timer in the timer
 		ldi temp1, 1
 		mov star_pressed, temp1
-		rjmp keypad_prologue	;jumping to col_prologue instead of the others will ensure star_pressed stays at 1 until whole column is searched empty
+		jmp keypad_prologue	
+
 
 	symbols_admin:
 		cpi col, 2	;check to see if # pressed
@@ -834,7 +847,6 @@ starting_done:
 ;Pressing 1-9 should try to retrieve the corresponding item, if in inventory -> coin screen else -> empty screen
 select_screen:
 	ldi current_screen, 1
-	ldi new_screen_flag, 1
 	do_lcd_command LCD_DISP_CLR
 	do_lcd_command LCD_HOME_LINE
 	do_lcd_data 'S'
@@ -901,12 +913,16 @@ coin_screen:
 		do_lcd_command LCD_SEC_LINE
 		call get_item
 		mov temp1, tempcost
+		call write_digits
 
+	temp_loop:
+		rjmp temp_loop
 
 
 ;Deliver Screen
 deliver_screen:
 	ldi current_screen, 4
+
 	;TODO
 
 ;Admin Screen
