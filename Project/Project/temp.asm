@@ -119,8 +119,11 @@
 .cseg
 .org 0x0000
 	jmp RESET
+.org INT0addr
 	jmp EXT_INT0		;Handling for IRQ0 (button pushed)
+.org INT1addr
 	jmp EXT_INT1	;Handling for IRQ1 (button pushed)
+.org INT2addr
 	jmp EXT_INT2    ;Handling for Potentiometer
 	jmp DEFAULT		;Handling for IRQ2
 .org OVF0addr
@@ -164,6 +167,12 @@ RESET:
 	in temp1, EIMSK			;enable INT1
 	ori temp1, (1<<INT1)
 	out EIMSK, temp1
+
+	clear DebounceCounter
+	clr debounceFlag0
+	clr debounceFlag1
+
+	sei
 
 	;Timer Interrupt
 	clear TempCounter
@@ -218,7 +227,15 @@ RESET:
 	out EIMSK, temp1
 
 	clr coins_needed
-	call initialiseMotor
+
+	ser temp1
+	out DDRE, temp1
+
+	ldi temp1, 0b00000000
+	sts TCCR1A, temp1
+	ldi temp1, 0b00000010	;set prescaler to 8 = 128 ms
+	sts TCCR1B, temp1
+
 
 	jmp start_screen
 
@@ -232,6 +249,9 @@ EXT_INT0:						;Right button
 	push temp2
 	in temp1, SREG
 	push temp1
+
+	clr temp1
+	out PORTC, temp1
 
 	cpi debounceFlag0, 1		;If flag is set end
 	breq END_INT
@@ -260,6 +280,9 @@ EXT_INT1:
 	push temp2
 	in temp1, SREG
 	push temp1
+
+	ser temp1
+	out PORTC, temp1
 
 	cpi debounceFlag1, 1		;If flag is set end
 	breq END_INT
@@ -931,9 +954,7 @@ coin_screen:
 	ldi current_screen, 3
 	call get_item
 	mov coins_needed, tempcost
-
 	coin_screen_update:
-
 	do_lcd_command LCD_DISP_CLR
 		do_lcd_command LCD_HOME_LINE
 		do_lcd_data 'I'
@@ -965,7 +986,7 @@ coin_screen:
 		    cp coins_needed, temp1
 		    breq go_deliver_screen
 			pop temp1
-			rjmp update_coin_screen
+			rjmp coin_screen_update
 
 			go_deliver_screen:
 				pop temp1
@@ -978,7 +999,6 @@ coin_screen:
 			CoinRetLoop:
 		    inc coins_needed
 			rcall startMotor
-			rcall Timer1OVF
 			cp coins_needed, tempcost
 			breq EndCoinRet
 			rjmp CoinRetLoop
@@ -991,7 +1011,7 @@ coin_screen:
 ;Deliver Screen
 deliver_screen:
 	ldi current_screen, 4
-
+	ldi new_screen_flag, 1
 	do_lcd_command LCD_DISP_CLR
 		do_lcd_command LCD_HOME_LINE
 		do_lcd_data 'D'
@@ -1016,26 +1036,20 @@ deliver_screen:
 		rjmp Timer1OVF
 
 ;Motor Control -------------------------------------------------
-initialiseMotor:
-	push temp1
-						; set PE4 (OC3B) to output
-	ser temp1
-	out DDRE, temp1
-
-	pop temp1
-	ret
 
 startMotor:
 	push temp1
 	
-	ldi temp1, 1 << TOIE1 							; enable timer
+
+	ldi temp1, (1 << TOIE1) 							; enable timer
 	sts TIMSK0, temp1
 	ldi temp1, low(0xFF)						; start motor
 	sts OCR3AH, temp1
 	ldi temp1, high(0xFF)
 	sts OCR3AL, temp1
 
-	
+	ldi new_screen_flag, 1
+	clear TempCounter1
 	
 	pop temp1
 	ret
@@ -1043,7 +1057,7 @@ startMotor:
 stopMotor:
 	push temp1
 	
-	ldi temp1, 0 << TOIE1 							; disable timer
+	ldi temp1, (0 << TOIE1) 							; disable timer
 	sts TIMSK0, temp1
 	clr temp1										; stop motor
 	sts OCR3AH, temp1
@@ -1059,8 +1073,8 @@ Timer1OVF:						; interrupt subroutine to Timer1
 	push r25
 	push r24
 
-	lds r24, TempCounter 		; load value of temporary counter
-	lds r25, TempCounter + 1
+	lds r24, TempCounter1 		; load value of temporary counter
+	lds r25, TempCounter1 + 1
 	adiw r25:r24, 1 			; increase temporary counter by 1
 	
 	
@@ -1085,10 +1099,11 @@ Timer1OVF:						; interrupt subroutine to Timer1
 		cpc r25, temp1			;check to see if 3 seconds has passed
 		brne NotThree
 		rcall stopMotor
+		rjmp END
 
 		new_deliver_timer:
 			ldi new_screen_flag, 0	;not a new screen anymore
-			clear TempCounter	;start 'new' timer
+			clear TempCounter1	;start 'new' timer
 			rjmp END
 
 		NotHalfThree:
@@ -1096,16 +1111,16 @@ Timer1OVF:						; interrupt subroutine to Timer1
 			out PORTC, temp1		;turn on all port C LEDs
 			ldi temp1, 0b00110000
 			out PORTG, temp1		;turn on the 2 port G LEDs
-			sts TempCounter, r24	;Store the new value of the temporary counter
-			sts TempCounter+1, r25
+			sts TempCounter1, r24	;Store the new value of the temporary counter
+			sts TempCounter1+1, r25
 			rjmp END
 			
 		NotThree:
 			clr temp1				;if 3 seconds has passed turn off leds and go back to select screen
 			out PORTC, temp1
 			out PORTG, temp1
-			sts TempCounter, r24
-			sts TempCounter+1, r25
+			sts TempCounter1, r24
+			sts TempCounter1+1, r25
 			rjmp END
 	
 	  coin_timer:
@@ -1128,17 +1143,17 @@ Timer1OVF:						; interrupt subroutine to Timer1
 
 		new_coin_timer:
 			ldi new_screen_flag, 0	;not a new screen anymore
-			clear TempCounter	;start 'new' timer
+			clear TempCounter1	;start 'new' timer
 			rjmp END
 
 		NotQuarterSecond:
-			sts TempCounter, r24	;Store the new value of the temporary counter
-			sts TempCounter+1, r25
+			sts TempCounter1, r24	;Store the new value of the temporary counter
+			sts TempCounter1+1, r25
 			rjmp END
 			
 		NotHalfSecond:
-			sts TempCounter, r24
-			sts TempCounter+1, r25
+			sts TempCounter1, r24
+			sts TempCounter1+1, r25
 			rjmp END
 	
 	END:
@@ -1148,9 +1163,6 @@ Timer1OVF:						; interrupt subroutine to Timer1
 		out SREG, temp1
 		pop temp1
 		reti 	
-
-
-	
 
 
 ;Admin Screen
