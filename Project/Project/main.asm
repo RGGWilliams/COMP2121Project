@@ -906,6 +906,7 @@ empty_screen:
 ;Coin Screen----------------
 coin_screen:
 	ldi current_screen, 3
+	ldi new_screen_flag, 1
 	do_lcd_command LCD_DISP_CLR
 		do_lcd_command LCD_HOME_LINE
 		do_lcd_data 'I'
@@ -963,7 +964,7 @@ coin_screen:
 ;Deliver Screen
 deliver_screen:
 	ldi current_screen, 4
-
+	ldi new_screen_flag, 1
 	do_lcd_command LCD_DISP_CLR
 		do_lcd_command LCD_HOME_LINE
 		do_lcd_data 'D'
@@ -994,12 +995,6 @@ initialiseMotor:
 	ser temp1
 	out DDRE, temp1
 
-	ldi temp1, 1 									; initialise the power variable
-	sts PowerValue, temp1
-
-	clr temp1
-	sts rps, temp1
-
 	pop temp1
 	ret
 
@@ -1008,9 +1003,9 @@ startMotor:
 	
 	ldi temp1, 1 << TOIE1 							; enable timer
 	sts TIMSK0, temp1
-	ldi temp1, low(INIT_RPS)						; start motor
+	ldi temp1, low(0xFF)						; start motor
 	sts OCR3AH, temp1
-	ldi temp1, high(INIT_RPS)
+	ldi temp1, high(0xFF)
 	sts OCR3AL, temp1
 	
 	pop temp1
@@ -1039,23 +1034,85 @@ Timer1OVF:						; interrupt subroutine to Timer1
 	lds r24, TempCounter 		; load value of temporary counter
 	lds r25, TempCounter + 1
 	adiw r25:r24, 1 			; increase temporary counter by 1
+	
+	
+	cpi current_screen, 4
+		breq deliver_timer
 
-	cpi r24, low(23436)			; here use 7812 = 10^6/128 for 1 second
-	ldi temp1, high(23436) 		
-	brne notSecond 				; if they're not equal, jump to notSecond
+	cpi current_screen, 3
+		breq coin_timer
+	
+	
+	deliver_timer:
+		cpi new_screen_flag, 1	;if screen has just been changed to start screen then start a new timer
+		breq new_deliver_timer
 
-	; 3 sec has passed 
-	rcall stopMotor 			; need to divide by 4 to account for 4 holes
+		cpi r24, low(11718)		;check to see if 1.5 seconds has passed
+		ldi temp1, high(11718)
+		cpc r25, temp1
+		brne NotHalfThree
+		
+		cpi r24, low(23436)	
+		ldi r25, high(23436)
+		cpc r25, temp1			;check to see if 3 seconds has passed
+		brne NotThree
+		rcall stopMotor
 
-	clr temp1
-	sts TempCounter, temp1				; reset temporary counter
-	sts TempCounter + 1, temp1
-	rjmp END
+		new_deliver_timer:
+			ldi new_screen_flag, 0	;not a new screen anymore
+			clear TempCounter	;start 'new' timer
+			rjmp EndIF
 
-	notSecond:
-		sts TempCounter, r24		; store new value of temporary counter
-		sts TempCounter + 1, r25
+		NotHalfThree:
+			ser temp1
+			out PORTC, temp1		;turn on all port C LEDs
+			ldi temp1, 0b00110000
+			out PORTG, temp1		;turn on the 2 port G LEDs
+			sts TempCounter, r24	;Store the new value of the temporary counter
+			sts TempCounter+1, r25
+			rjmp EndIF
+			
+		NotThree:
+			clr temp1				;if 3 seconds has passed turn off leds and go back to select screen
+			out PORTC, temp1
+			out PORTG, temp1
+			sts TempCounter, r24
+			sts TempCounter+1, r25
+			rjmp EndIF
+	
+	  coin_timer:
+		cpi new_screen_flag, 1	;if screen has just been changed to start screen then start a new timer
+		breq new_coin_timer
 
+		cpi r24, low(1953)		;check to see if 0.25 seconds has passed
+		ldi temp1, high(1953)
+		cpc r25, temp1
+		brne NotQuarterSecond
+		;0.25 seconds has passed
+		rcall stopMotor
+		
+		cpi r24, low(3902)	
+		ldi r25, high(3902)
+		cpc r25, temp1			;check to see if 0.5 seconds has passed
+		brne NotHalfSecond
+		rjmp END
+		
+
+		new_coin_timer:
+			ldi new_screen_flag, 0	;not a new screen anymore
+			clear TempCounter	;start 'new' timer
+			rjmp END
+
+		NotQuarterSecond:
+			sts TempCounter, r24	;Store the new value of the temporary counter
+			sts TempCounter+1, r25
+			rjmp END
+			
+		NotHalfSecond:
+			sts TempCounter, r24
+			sts TempCounter+1, r25
+			rjmp END
+	
 	END:
 		pop r24
 		pop r25
@@ -1063,54 +1120,6 @@ Timer1OVF:						; interrupt subroutine to Timer1
 		out SREG, temp1
 		pop temp1
 		reti 	
-		
-coinReturn:						; interrupt subroutine to Timer1
-
-	in temp1, SREG
-	push temp1 					; save conflict registers
-	push r25
-	push r24
-
-	lds r24, TempCounter 		; load value of temporary counter
-	lds r25, TempCounter + 1
-	adiw r25:r24, 1 			; increase temporary counter by 1
-	
-	cpi r24, low(1953)			; here use 7812 = 10^6/128 for 1 second
-	ldi temp1, high(1953) 		; use 3906 for 0.5 seconds
-	cpc r25, temp1
-	brne notQuarterSecond 
-					; if they're not equal, jump to notSecond
-	;0.25 seconds has passed
-	rcall stopMotor
-	rjmp CheckHalfSecond
-	
-	CheckHalfSecond:	;motor paused for 0.25 seconds 
-	    cpi r24, low(3902)			; here use 7812 = 10^6/128 for 1 second
-	    ldi temp1, high(3902) 		; use 3906 for 0.5 seconds
-	    cpc r25, temp1
-	    breq END 
-	    sts TempCounter, r24		; store new value of temporary counter
-	    sts TempCounter + 1, r25
-	    rjmp CheckHalfSecond
-
-	    notQuarterSecond:
-	        sts TempCounter, r24		; store new value of temporary counter
-	        sts TempCounter + 1, r25
-
-	END:
-		clr temp1
-	        sts TempCounter, temp1				; reset temporary counter
-	        sts TempCounter + 1, temp1
-	
-		pop r24
-		pop r25
-		pop temp1
-		out SREG, temp1
-		reti 						; return from interrupt
-
-
-
-	
 
 
 ;Admin Screen
