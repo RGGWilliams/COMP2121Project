@@ -123,6 +123,8 @@
 	jmp DEFAULT		;Handling for IRQ2
 .org OVF0addr
 	jmp Timer0OVF	;Handling for Timer 0 overflow
+.org 0x003A
+	rjmp ADC_ISR
 jmp DEFAULT			;Handling for all other interrupts
 
 ;DEFAULT AND RESET --------------------------------------------
@@ -208,10 +210,17 @@ RESET:
 	;Keypad
 	
 	;Potentiometer - connected to INT2
-	ldi temp1, (2 << ISC20) 					; set INT2 to trigger on rising edge between two INTn
-	sts EICRA, temp1
-	ldi temp1, (1 << INT2) 							; enable INT2
-	out EIMSK, temp1
+	;ldi temp1, (2 << ISC20) 					; set INT2 to trigger on rising edge between two INTn
+	;sts EICRA, temp1
+	;ldi temp1, (1 << INT2) 							; enable INT2
+	;out EIMSK, temp1
+	
+	ldi temp1, (3<<REFS0)|(0<<ADLAR)|(0<<MUX0)
+	sts ADMUX, temp1
+	ldi temp1, (1<<MUX5)
+	sts ADCSRB, temp1
+	ldi temp1, (1<<ADEN)|(1<<ADSC)|(1<<ADIE)|(5<<ADPS0) 
+	sts ADCSRA, temp1
 
 	clr coins_needed
 
@@ -931,8 +940,32 @@ coin_screen:
     
     wait_loop:
       rjmp wait_loop 
-     
-		EXT_INT2:										;dealing with the potentiometer
+      
+    //initialise variable for interrupt_counter  
+    //ldi interrupt_counter, 0
+    ADC_ISR:
+    	push temp1
+    
+    adc_loop:
+    	cpi ADCL, low(0)		
+	ldi temp1, high(0)
+	cpc ADCH, temp1
+	breq increment
+	
+	cpi ADCL, low(0x3F)		
+	ldi temp1, high(0x3F)
+	cpc ADCH, temp1
+	breq increment
+	
+	increment:
+	    inc interrupt_counter
+	    cpi interrupt_counter, 3 ;?or is it 2????
+	    breq EXT_INT2
+	    rjmp adc_loop
+	    
+	 pop temp1
+
+		/*EXT_INT2:										;dealing with the potentiometer
 		    push temp2
 			
 		    dec coins_needed
@@ -959,7 +992,7 @@ coin_screen:
 		    	    pop coins_needed 
 		    	    pop temp1
 		
-		    pop temp2
+		    pop temp2*/
 
 ;Deliver Screen
 deliver_screen:
