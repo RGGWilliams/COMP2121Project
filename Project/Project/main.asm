@@ -1032,6 +1032,7 @@ Timer1OVF:						; interrupt subroutine to Timer1
 
 	clr temp1
 	sts TempCounter, temp1				; reset temporary counter
+	sts TempCounter + 1, temp1
 	rjmp END
 
 	notSecond:
@@ -1044,7 +1045,53 @@ Timer1OVF:						; interrupt subroutine to Timer1
 		pop temp1
 		out SREG, temp1
 		pop temp1
-		reti 		
+		reti 	
+		
+coinReturn:						; interrupt subroutine to Timer1
+
+	in temp1, SREG
+	push temp1 					; save conflict registers
+	push r25
+	push r24
+
+	lds r24, TempCounter 		; load value of temporary counter
+	lds r25, TempCounter + 1
+	adiw r25:r24, 1 			; increase temporary counter by 1
+	
+	cpi r24, low(1953)			; here use 7812 = 10^6/128 for 1 second
+	ldi temp1, high(1953) 		; use 3906 for 0.5 seconds
+	cpc r25, temp1
+	brne notQuarterSecond 
+					; if they're not equal, jump to notSecond
+	;0.25 seconds has passed
+	rcall stopMotor
+	rjmp CheckHalfSecond
+	
+	CheckHalfSecond:	;motor paused for 0.25 seconds 
+	    cpi r24, low(3902)			; here use 7812 = 10^6/128 for 1 second
+	    ldi temp1, high(3902) 		; use 3906 for 0.5 seconds
+	    cpc r25, temp1
+	    breq END 
+	    sts TempCounter, r24		; store new value of temporary counter
+	    sts TempCounter + 1, r25
+	    rjmp CheckHalfSecond
+
+	    notQuarterSecond:
+	        sts TempCounter, r24		; store new value of temporary counter
+	        sts TempCounter + 1, r25
+
+	END:
+		clr temp1
+	        sts TempCounter, temp1				; reset temporary counter
+	        sts TempCounter + 1, temp1
+	
+		pop r24
+		pop r25
+		pop temp1
+		out SREG, temp1
+		reti 						; return from interrupt
+
+
 
 	
 	
