@@ -10,17 +10,20 @@
 ;General - notify other member if change any of these
 .def temp1 = r16
 .def temp2 = r17
-.def address = r18
-.def digit = r21
-.def digit_count = r22
-.def current_screen	=r23	;to keep track of what screen we are currently on where 0: start screen, 1: Select Screen, 2: Empty Screen, 3: Coin Screen, 4: Deliver Screen, 5: Admin Screen
+.def star_pressed = r12
+.def second_counter = r10
+.def current_item = r11
+.def new_screen_flag = r23
+.def current_screen	=r22	;to keep track of what screen we are currently on where 0: start screen, 1: Select Screen, 2: Empty Screen, 3: Coin Screen, 4: Deliver Screen, 5: Admin Screen
 .def row = r24
 .def col = r25
-.def rmask = r26
-.def cmask = r27
-.def debounceFlag0 = r28
-.def debounceFlag1 = r29
-
+.def rmask = r18
+.def cmask = r19
+.def debounceFlag0 = r20
+.def debounceFlag1 = r21
+.def tempcount = r13
+.def tempcost = r14
+.def address = r15
 
 
 ;Constants----------------------------
@@ -55,9 +58,9 @@
 .macro clear
 	ldi YL, low(@0)     ; load the memory address to Y
     ldi YH, high(@0)
-    clr temp 
-    st Y+, temp         ; clear the two bytes at @0 in SRAM
-    st Y, temp
+    clr temp1 
+    st Y+, temp1        ; clear the two bytes at @0 in SRAM
+    st Y, temp1
 .endmacro
 
 ; LCD Macros-----------------
@@ -96,7 +99,6 @@
 
 ;DSEG and CSEG ---------------------------------------------------------
 .dseg
-	SecondCounter: .byte 2
 	TempCounter: .byte 2
 	DebounceCounter: .byte 2	;Used to determine if 50ms has passed for push button pressing
 	Item1: .byte 2				;Item stores where first byte is the inventory count and the second byte is the coin cost 
@@ -154,7 +156,6 @@ RESET:
 
 	;Timer Interrupt
 	clear TempCounter
-	clear SecondCounter
 	
 	ldi temp1, 0b00000000
 	out TCCR0A, temp1
@@ -185,9 +186,6 @@ RESET:
 	do_lcd_command LCD_ENTR_SET
 	do_lcd_command LCD_DISP_ON  
 
-	ldi temp1, LCD_HOME_LINE					; initialise variables
-	mov address, temp1
-
 	;Item counts
 	clear Item1
 	clear Item2
@@ -206,11 +204,68 @@ RESET:
 ;INTERRUPTS-----------------------------------------------------
 ;Button Interrupts-----------
 EXT_INT0:
-	;TODO Handling for EXT_INT0
+	push temp1
+	push temp2
+	in temp1, SREG
+	push temp1
 
-EXT_INT1:
-	;TODO Handling for EXT_INT1
+	cpi debounceFlag0, 1		;If flag is set end
+	breq END_INT
 
+	ldi debounceFlag0, 1		;set debounce flag
+
+	cpi current_screen, 5	;Check for admin screen
+	breq admin_right
+	rjmp END_INT
+
+	admin_right:
+		call get_item
+		ldi temp1, 10
+		cp tempcount, temp1
+		breq END_INT
+		inc temp1
+		mov tempcount, temp1
+		call set_item
+		rjmp END_INT
+
+
+
+EXT_INT1:		
+	push temp1
+	push temp2
+	in temp1, SREG
+	push temp1
+
+	cpi debounceFlag1, 1		;If flag is set end
+	breq END_INT
+
+	ldi debounceFlag1, 1		;set debounce flag
+
+	cpi current_screen, 5	;Check for admin screen
+	breq admin_left
+	rjmp END_INT
+
+	admin_left:
+		call get_item
+		ldi temp1, 0
+		cp tempcount, temp1
+		breq END_INT
+		dec temp1
+		mov tempcount, temp1
+		call set_item
+		rjmp END_INT
+
+END_INT:
+	pop temp1
+	out SREG, temp1
+	pop temp2
+	pop temp1
+	cpi current_screen, 5		;If in admin screen need to update the screen
+	breq update_admin_hop		
+	reti
+
+update_admin_hop:
+	call update_admin_screen
 
 ;Timer Interrupts--------------
 Timer0OVF:
@@ -233,8 +288,8 @@ Timer0OVF:
 		adiw r24:r25, 1
 
 		cpi r24, low(780) ;for 50 ms say
-		ldi temp, high(780)
-		cpc r25, temp
+		ldi temp1, high(780)
+		cpc r25, temp1
 		brne NotFif
 		clr debounceFlag0	;if 50ms has passed clear the flags and counter
 		clr debounceFlag1
@@ -252,24 +307,117 @@ Timer0OVF:
 		lds r25, TempCounter+1
 		adiw r25:r24, 1
 
-		cpi r24, low(7812) 
-		ldi temp, high(7812)
-		cpc r25, temp
-		brne NotSecond
+		cpi current_screen, 0
+		breq start_timer
+
+		cpi current_screen, 1
+		breq select_timer
+
+		cpi current_screen, 2
+		breq empty_timer
+
+		;cpi r24, low(7812) 
+		;ldi temp, high(7812)
+		;cpc r25, temp
+		;brne NotSecond
 		;TODO What to do after second has passed
-		clear TempCounter
+		;clear TempCounter
 
-		lds r24, SecondCounter
-		lds r25, SecoundCounter+1
-		adiw r25:r24, 1		;Increase second counter by 1
-		sts SecondCounter, r24
-		sts SecondCounter+1, r25
-		rjmp EndIF
+		;lds r24, SecondCounter
+		;lds r25, SecoundCounter+1
+		;adiw r25:r24, 1		;Increase second counter by 1
+		;sts SecondCounter, r24
+		;sts SecondCounter+1, r25
+		;rjmp EndIF
 
-NotSecond:
-	sts TempCounter, r24	;Store the new value of the temporary counter
-	sts TempCounter+1, r25
-	rjmp EndIF
+;NotSecond:
+	;sts TempCounter, r24	;Store the new value of the temporary counter
+	;sts TempCounter+1, r25
+	;rjmp EndIF
+
+	start_timer:
+		cpi new_screen_flag, 1	;if screen has just been changed to start screen then start a new timer
+		breq new_start_timer
+
+		cpi r24, low(23436)		;check to see if 3 seconds has passed
+		ldi temp1, high(23436)
+		cpc r25, temp1
+		brne NotThreeSeconds
+		rjmp select_screen		;else if 3 seconds has passed jump to select screen
+
+		new_start_timer:
+			ldi new_screen_flag, 0	;not a new screen anymore
+			clear TempCounter	;start 'new' timer
+			rjmp EndIF
+
+		NotThreeSeconds:
+			sts TempCounter, r24	;Store the new value of the temporary counter
+			sts TempCounter+1, r25
+			rjmp EndIF	
+
+	select_timer:
+		ldi temp1, 1
+		cp star_pressed, temp1		;if star has been pressed then start a new timer
+		breq new_select_timer
+
+		cpi r24, low(7812)
+		ldi temp1, high(7812)
+		cpc r25, temp1
+		brne NotSecond
+		inc second_counter
+		ldi temp1, 5
+		cp second_counter, temp1
+		brne EndIF
+		ldi temp1, 1
+		cp star_pressed, temp1
+		brne EndIF
+		rjmp admin_screen
+
+		new_select_timer:
+			clear TempCounter	;start 'new' timer
+			rjmp EndIF
+
+		NotSecond:
+			sts TempCounter, r24	;Store the new value of the temporary counter
+			sts TempCounter+1, r25
+			rjmp EndIF	
+
+	empty_timer:
+		cpi new_screen_flag, 1	;if screen has just been changed to start screen then start a new timer
+		breq new_empty_timer
+
+		cpi r24, low(11718)		;check to see if 1.5 seconds has passed
+		ldi temp1, high(11718)
+		cpc r25, temp1
+		brne NotHalfThreeSeconds
+		cpi r24, low(23436)	
+		ldi r25, high(23436)
+		cpc r25, temp1			;check to see if 3 seconds has passed
+		brne NotThreeSecondsEmpty
+		clr temp1				;if 3 seconds has passed turn off leds and go back to select screen
+		out PORTC, temp1
+		out PORTG, temp1
+		rjmp select_screen
+
+		new_empty_timer:
+			ldi new_screen_flag, 0	;not a new screen anymore
+			clear TempCounter	;start 'new' timer
+			rjmp EndIF
+
+		NotHalfThreeSeconds:
+			sts TempCounter, r24	;Store the new value of the temporary counter
+			sts TempCounter+1, r25
+			rjmp EndIF
+			
+		NotThreeSecondsEmpty:
+			ser temp1
+			out PORTC, temp1		;turn on all port C LEDs
+			ldi temp1, 0b00110000
+			out PORTG, temp1		;turn on the 2 port G LEDs
+			sts TempCounter, r24
+			sts TempCounter+1, r25
+			rjmp EndIF
+
 
 EndIF:
 	pop r24
@@ -281,17 +429,18 @@ EndIF:
 	reti
 
 
-main:
-	;Keypad
-	ldi cmask, INITCOLMASK		;initial column mask
-	clr col						;initial column
+main:					;initial column
+	rcall start_screen
 
 colloop:
+	col_prologue_empty:
+		ldi temp1, 0
+		mov star_pressed, temp1
 	col_prologue:
 		ldi cmask, INITCOLMASK
 		clr col
 	cpi col, 4
-	breq col_prologue ; If all keys are scanned, repeat.
+	breq col_prologue_empty ; If all keys are scanned, repeat. And star is not pressed anymore
 	sts PORTL, cmask ; Otherwise, scan a column.
 
 	ldi temp1, 0xFF ; Slow down the scan operation.
@@ -328,35 +477,119 @@ nextcol: ; if row scan is over
 	jmp colloop ; go to the next column
 
 convert:
+	cpi current_screen, 0	;if the current screen is the start screen a button pressed means it should go to the next screen
+	breq button_pressed
+
 	cpi col, 3 ; If the pressed key is in col.3
 	breq letters ; we have a letter
 					; If the key is not in col.3 and
 	cpi row, 3 ; If the key is in row3,
 	breq symbols ; we have a symbol or 0
 
-	numbers: ;else its a number (NOT ZERO)
-		mov temp1, row ; Otherwise we have a number in 1-9
-		lsl temp1
-		add temp1, row
-		add temp1, col ; temp1 = row*3 + col
-		;temp1 now has the value of the button pushed
+button_pressed:
+	rjmp select_screen
+
+numbers: ;else its a number (NOT ZERO)
+	mov temp1, row ; Otherwise we have a number in 1-9
+	lsl temp1
+	add temp1, row
+	add temp1, col ; temp1 = row*3 + col
+	;temp1 now has the value of the button pushed
+	numbers_computed:
+		cpi current_screen, 1	;check if the current screen is the select screen
+		breq numbers_select
+
+		cpi current_screen, 5	;check if current screen is admin
+		breq numbers_admin
 
 	jmp convert_end
 
+	numbers_select:
+		mov current_item, temp1
+		call get_item
+		ldi temp2, 0
+		cp tempcount, temp2
+		breq empty_hop
+		jmp coin_screen
+	
+	numbers_admin:
+		mov current_item, temp1
+		rjmp update_admin_screen
+
+empty_hop:
+	call empty_screen		
+
 letters:
-	//TODO letters handling for each screen
-	;Should be in the form if current_screen is this do this
-	;if current_screen is this then do this
-	jmp main
+	cpi current_screen, 5	;check if current screen is admin
+	breq letters_admin
+	jmp convert_end
+
+	letters_admin:
+		cpi row, 0
+		breq letters_admin_A
+
+		cpi row, 1
+		breq letters_admin_B
+
+		call get_item
+		ldi temp1, 0
+		mov tempcount, temp1
+		call set_item
+		jmp update_admin_screen
+
+		letters_admin_A:
+			call get_item
+			ldi temp1, 3
+			cp tempcost, temp1
+			breq update_admin_hop2
+			inc temp1
+			mov tempcost, temp1
+			call set_item
+			jmp update_admin_screen
+
+		letters_admin_B:
+			call get_item
+			ldi temp1, 0
+			cp tempcost, temp1
+			breq update_admin_hop2
+			dec temp1
+			mov tempcost, temp1
+			call set_item
+			jmp update_admin_screen
+
+update_admin_hop2:
+	call update_admin_screen
 
 symbols:
 	cpi col, 1 ; or if we have zero
 	breq zero
-	
-	;TODO symbol handling for each screen
+
+	cpi current_screen, 1 ;check for select screen
+	breq symbols_select
+
+	cpi current_screen, 5 ;check for admin screen
+	breq symbols_admin
+
+	rjmp convert_end
+
+	symbols_select:
+		cpi col, 0
+		brne col_prologue_hop
+		ldi temp1, 1
+		mov star_pressed, temp1
+		rjmp col_prologue	;jumping to col_prologue instead of the others will ensure star_pressed stays at 1 until whole column is searched empty
+
+	symbols_admin:
+		cpi col, 2	;check to see if # pressed
+		brne convert_end
+		rjmp select_screen	;if pressed go to select_screen
+
+col_prologue_hop:
+	jmp col_prologue
 
 zero:
-	ldi temp1, '0' ; Set to zero
+	ldi temp1, 0 ; Set to zero
+	rjmp numbers_computed
 	;TODO zero handling for each screen
 	jmp convert_end
 
@@ -439,6 +672,41 @@ sleep_20ms:
 	rcall sleep_5ms
 	ret
 
+get_item:
+	ldi YH, high(Item1)
+	ldi YL, low(Item1)
+	mov temp1, current_item
+	get_item_loop:
+		cpi temp1, 0
+		breq end_item_count
+		ld tempcount, Y+	
+		ld tempcost, Y+
+		dec temp1
+		rjmp get_item_loop
+	end_item_count:
+		reti
+
+set_item:
+	ldi YH, high(Item1)
+	ldi YL, low(Item1)
+	mov temp1, current_item
+	set_item_loop:
+		cpi temp1, 1
+		breq end_item_set
+		ld temp2, Y+
+		ld temp2, Y+
+		dec temp1
+		rjmp set_item_loop
+	end_item_set:
+		st Y+, tempcount
+		st Y+, tempcost
+		reti
+
+
+
+
+	
+
 
 ;SCREENS--------------------------------------------------------------------------------------------
 
@@ -447,14 +715,103 @@ sleep_20ms:
 ;Then 3 seconds later, or until any keypad button is pressed should go to select screen
 start_screen:
 	ldi current_screen, 0
-	;TODO
+	ldi new_screen_flag, 1
+	do_lcd_data '2'
+	do_lcd_data '1'
+	do_lcd_data '2'
+	do_lcd_data '1'
+	do_lcd_data ' '
+	do_lcd_data '1'
+	do_lcd_data '7'
+	do_lcd_data 's'
+	do_lcd_data '1'
+	do_lcd_data ' '
+	do_lcd_data ' '
+	do_lcd_data ' '
+	do_lcd_data ' '
+	do_lcd_data 'M'
+	do_lcd_data '2'
+	do_lcd_command LCD_SEC_LINE
+	do_lcd_data 'V'
+	do_lcd_data 'e'
+	do_lcd_data 'n'
+	do_lcd_data 'd'
+	do_lcd_data 'i'
+	do_lcd_data 'n'
+	do_lcd_data 'g'
+	do_lcd_data ' '
+	do_lcd_data 'M'
+	do_lcd_data 'a'
+	do_lcd_data 'c'
+	do_lcd_data 'h'
+	do_lcd_data 'i'
+	do_lcd_data 'n'
+	do_lcd_data 'e'
+	rcall starting_inventory
+	reti
 
+starting_inventory:
+	ldi temp1, 1
+	starting_inventory_loop:		;loop over each item setting inventory as number of items
+		cpi temp1, 10
+		breq starting_cost
+		mov current_item, temp1
+		call get_item				;tempcount tempcost now have old values of current_item (which is temp1)
+		mov tempcount, temp1
+		rcall set_item				;sets tempcount to temp1 of current_item
+		inc temp1
+		rjmp starting_inventory_loop
+
+starting_cost:
+	ldi temp1, 1
+	starting_cost_odd_loop:		;loop over each odd numbered item setting cost to 1 coin. Temp1 will be current item to be looked at
+		cpi temp1, 11
+		breq starting_cost_even
+		mov current_item, temp1
+		call get_item			;saves old values of count and cost into tempcount tempcost
+		ldi temp2, 1
+		mov tempcost, temp2
+		call set_item
+		inc temp1
+		inc temp1
+		rjmp starting_cost_odd_loop
+starting_cost_even:
+	ldi temp1, 2
+	starting_cost_even_loop:		;loop over each even numbered item setting cost to 2 coins
+		cpi temp1, 10
+		breq starting_done
+		mov current_item, temp1
+		call get_item			;saves old values of count and cost into tempcount tempcost
+		ldi temp2, 2
+		mov tempcost, temp2
+		call set_item
+		inc temp1
+		inc temp1
+		rjmp starting_cost_even_loop
+starting_done:
+	reti
 
 ;Select Screen-----------------
 ;Pressing 1-9 should try to retrieve the corresponding item, if in inventory -> coin screen else -> empty screen
 select_screen:
 	ldi current_screen, 1
-	;TODO
+	ldi new_screen_flag, 1
+	do_lcd_command LCD_DISP_CLR
+	do_lcd_command LCD_HOME_LINE
+	do_lcd_data 'S'
+	do_lcd_data 'e'
+	do_lcd_data 'l'
+	do_lcd_data 'e'
+	do_lcd_data 'c'
+	do_lcd_data 't'
+	do_lcd_data ' '
+	do_lcd_data 'i'
+	do_lcd_data 't'
+	do_lcd_data 'e'
+	do_lcd_data 'm'
+
+	rjmp col_prologue
+	;all handling in button areas
 
 
 ;Empty Screen-----------------
@@ -463,12 +820,52 @@ select_screen:
 ;All 10 LEDS should be on for the first half of the 3 seconds then off for the second half
 empty_screen:
 	ldi current_screen, 2
-	;TODO
+	ldi new_screen_flag, 1
+	do_lcd_command LCD_DISP_CLR
+	do_lcd_command LCD_HOME_LINE
+	do_lcd_data 'O'
+	do_lcd_data 'u'
+	do_lcd_data 't'
+	do_lcd_data ' '
+	do_lcd_data 'o'
+	do_lcd_data 'f'
+	do_lcd_data ' '
+	do_lcd_data 's'
+	do_lcd_data 't'
+	do_lcd_data 'o'
+	do_lcd_data 'c'
+	do_lcd_data 'k'
+	do_lcd_command LCD_SEC_LINE
+
+	ldi temp1, LCD_SEC_LINE
+	mov address, temp1
+	mov temp1, current_item
+	rcall write_digits		;write out current_item
+	empty_loop:
+		rcall empty_loop		;loop until timers send back to select_screen
 
 ;Coin Screen----------------
 coin_screen:
 	ldi current_screen, 3
-	;TODO
+	do_lcd_command LCD_DISP_CLR
+		do_lcd_command LCD_HOME_LINE
+		do_lcd_data 'I'
+		do_lcd_data 'n'
+		do_lcd_data 's'
+		do_lcd_data 'e'
+		do_lcd_data 'r'
+		do_lcd_data 't'
+		do_lcd_data ' '
+		do_lcd_data 'c'
+		do_lcd_data 'o'
+		do_lcd_data 'i'
+		do_lcd_data 'n'
+		do_lcd_data 's'
+		do_lcd_command LCD_SEC_LINE
+		call get_item
+		mov temp1, tempcost
+
+
 
 ;Deliver Screen
 deliver_screen:
@@ -478,15 +875,81 @@ deliver_screen:
 ;Admin Screen
 admin_screen:
 	ldi current_screen, 5
-	;TODO
+	ldi temp1, 1
+	mov current_item, temp1		;default item selected is 1. temp1 will hold item selected
+	update_admin_screen:
+		do_lcd_command LCD_DISP_CLR
+		do_lcd_command LCD_HOME_LINE
+		do_lcd_data 'A'
+		do_lcd_data 'd'
+		do_lcd_data 'm'
+		do_lcd_data 'i'
+		do_lcd_data 'n'
+		do_lcd_data ' '
+		do_lcd_data 'm'
+		do_lcd_data 'o'
+		do_lcd_data 'd'
+		do_lcd_data 'e'
+		do_lcd_data ' '
+		mov temp1, current_item
+		rcall write_digits	;prints item number stored in temp1
+		do_lcd_command LCD_SEC_LINE
+		call get_item
+		mov temp1, tempcount
+		call write_digits
+		rcall show_inventory
+		do_lcd_data ' '
+		do_lcd_data ' '
+		do_lcd_data ' '
+		do_lcd_data ' '
+		do_lcd_data ' '
+		do_lcd_data ' '
+		do_lcd_data ' '
+		do_lcd_data ' '			;TODO chech how long lcd line is
+		do_lcd_data '$'
+		mov temp1, tempcost
+		call write_digits
+		rjmp col_prologue		;check for button pushing
 
+		show_inventory:		;Function to show inventory on leds
+			clr temp2			;temp2 will be what to be shown on leds
+			cpi temp1, 9		;check to see if need to show on PORTG LEDs as well
+			brlo show_inventory_C_loop
+			breq show_9
+			ldi temp1, 8		;else must be 10 and have 8 remaining leds to show on PORTC
+			ldi temp2, 0b00110000	;show both PORTG LEDs
+			out PORTG, temp2	
+			clr temp2
+			rjmp show_inventory_C_loop
+			show_9:
+				ldi temp1, 8
+				ldi temp2, 0b00010000	;show just one PORTG LED TODO not sure if this is right one
+				out PORTG, temp2
+				clr temp2
+			show_inventory_C_loop:
+				cpi temp1, 0
+				breq show_inventory_done
+				lsl temp2
+				ori temp2, 0b00000001
+				dec temp1
+				rjmp show_inventory_C_loop
 
+			show_inventory_done:
+				out PORTC, temp2
+				reti
+				
 
+		
 
-	
- 
+write_digits:										; writes value of temp1
+	cpi temp1, 10
+	brne write_ones
 
+	do_lcd_data '1'
+	subi temp1, 10
 
-convert_digits: ;given number stored in temp1 
-	;TODO 
+	write_ones:
+		subi temp1, -'0'
+		do_lcd_data_reg temp1
+		ret
 
