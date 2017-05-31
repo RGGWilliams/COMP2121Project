@@ -24,6 +24,7 @@
 .def tempcount = r13
 .def tempcost = r14
 .def address = r15
+.def coins_needed = r9
 
 
 ;Constants----------------------------
@@ -118,6 +119,7 @@
 	jmp RESET
 	jmp EXT_INT0		;Handling for IRQ0 (button pushed)
 	jmp EXT_INT1	;Handling for IRQ1 (button pushed)
+	jmp EXT_INT2    ;Handling for Potentiometer
 	jmp DEFAULT		;Handling for IRQ2
 .org OVF0addr
 	jmp Timer0OVF	;Handling for Timer 0 overflow
@@ -204,6 +206,14 @@ RESET:
 	clear Item9
 
 	;Keypad
+	
+	;Potentiometer - connected to INT2
+	ldi temp1, (2 << ISC20) 					; set INT2 to trigger on rising edge between two INTn
+	sts EICRA, temp1
+	ldi temp1, (1 << INT2) 							; enable INT2
+	out EIMSK, temp1
+
+	clr coins_needed
 
 	;TODO other parts
 
@@ -913,17 +923,195 @@ coin_screen:
 		do_lcd_command LCD_SEC_LINE
 		call get_item
 		mov temp1, tempcost
-		call write_digits
 
-	temp_loop:
-		rjmp temp_loop
-
+		rcall write_digits    		;write intial tmp cost
+		
+		mov coins_needed, temp1
+    
+    wait_loop:
+      rjmp wait_loop 
+     
+		EXT_INT2:										;dealing with the potentiometer
+		    push temp2
+			
+		    dec coins_needed
+		    mov temp2, coins_needed
+		    rcall write_digits
+		    cpi coins_needed, 0
+		    breq deliver_screen
+		    
+		    //check for '#' if equal CoinRet
+		    rjmp CoinRet
+		
+		    CoinRet:
+		    	push temp1
+		    	push coins_needed
+		    
+		    	inc coins_needed
+			rcall startMotor
+			rcall coinReturn
+			cp coins_needed, tempcost
+			breq EndCoinRet
+			rjmp CoinRet
+			
+		    	EndCoinRet:
+		    	    pop coins_needed 
+		    	    pop temp1
+		
+		    pop temp2
 
 ;Deliver Screen
 deliver_screen:
 	ldi current_screen, 4
 
-	;TODO
+	do_lcd_command LCD_DISP_CLR
+		do_lcd_command LCD_HOME_LINE
+		do_lcd_data 'D'
+		do_lcd_data 'e'
+		do_lcd_data 'l'
+		do_lcd_data 'i'
+		do_lcd_data 'v'
+		do_lcd_data 'e'
+		do_lcd_data 'r'
+		do_lcd_data 'i'
+		do_lcd_data 'n'
+		do_lcd_data 'g'
+		do_lcd_data ''
+		do_lcd_data 'I'
+		do_lcd_data 't'
+		do_lcd_data 'e'
+		do_lcd_data 'm'
+		
+		rjmp startMotor
+		clr temp1
+		sts TempCounter, temp1
+		rjmp Timer1OVF
+
+;Motor Control -------------------------------------------------
+initialiseMotor:
+	push temp1
+						; set PE4 (OC3B) to output
+	ser temp1
+	out DDRE, temp1
+
+	ldi temp1, 1 									; initialise the power variable
+	sts PowerValue, temp1
+
+	clr temp1
+	sts rps, temp1
+
+	pop temp1
+	ret
+
+startMotor:
+	push temp1
+	
+	ldi temp1, 1 << TOIE1 							; enable timer
+	sts TIMSK0, temp1
+	ldi temp1, low(INIT_RPS)						; start motor
+	sts OCR3AH, temp1
+	ldi temp1, high(INIT_RPS)
+	sts OCR3AL, temp1
+	
+	pop temp1
+	ret
+
+stopMotor:
+	push temp1
+	
+	ldi temp1, 0 << TOIE1 							; disable timer
+	sts TIMSK0, temp1
+	clr temp1										; stop motor
+	sts OCR3AH, temp1
+	sts OCR3AL, temp1
+	
+	pop temp1
+	ret
+
+;Timer for motor control
+Timer1OVF:						; interrupt subroutine to Timer1
+	push temp1
+	in temp1, SREG
+	push temp1 					; save conflict registers
+	push r25
+	push r24
+
+	lds r24, TempCounter 		; load value of temporary counter
+	lds r25, TempCounter + 1
+	adiw r25:r24, 1 			; increase temporary counter by 1
+
+	cpi r24, low(23436)			; here use 7812 = 10^6/128 for 1 second
+	ldi temp1, high(23436) 		
+	brne notSecond 				; if they're not equal, jump to notSecond
+
+	; 3 sec has passed 
+	rcall stopMotor 			; need to divide by 4 to account for 4 holes
+
+	clr temp1
+	sts TempCounter, temp1				; reset temporary counter
+	sts TempCounter + 1, temp1
+	rjmp END
+
+	notSecond:
+		sts TempCounter, r24		; store new value of temporary counter
+		sts TempCounter + 1, r25
+
+	END:
+		pop r24
+		pop r25
+		pop temp1
+		out SREG, temp1
+		pop temp1
+		reti 	
+		
+coinReturn:						; interrupt subroutine to Timer1
+
+	in temp1, SREG
+	push temp1 					; save conflict registers
+	push r25
+	push r24
+
+	lds r24, TempCounter 		; load value of temporary counter
+	lds r25, TempCounter + 1
+	adiw r25:r24, 1 			; increase temporary counter by 1
+	
+	cpi r24, low(1953)			; here use 7812 = 10^6/128 for 1 second
+	ldi temp1, high(1953) 		; use 3906 for 0.5 seconds
+	cpc r25, temp1
+	brne notQuarterSecond 
+					; if they're not equal, jump to notSecond
+	;0.25 seconds has passed
+	rcall stopMotor
+	rjmp CheckHalfSecond
+	
+	CheckHalfSecond:	;motor paused for 0.25 seconds 
+	    cpi r24, low(3902)			; here use 7812 = 10^6/128 for 1 second
+	    ldi temp1, high(3902) 		; use 3906 for 0.5 seconds
+	    cpc r25, temp1
+	    breq END 
+	    sts TempCounter, r24		; store new value of temporary counter
+	    sts TempCounter + 1, r25
+	    rjmp CheckHalfSecond
+
+	    notQuarterSecond:
+	        sts TempCounter, r24		; store new value of temporary counter
+	        sts TempCounter + 1, r25
+
+	END:
+		clr temp1
+	        sts TempCounter, temp1				; reset temporary counter
+	        sts TempCounter + 1, temp1
+	
+		pop r24
+		pop r25
+		pop temp1
+		out SREG, temp1
+		reti 						; return from interrupt
+
+
+
+	
+
 
 ;Admin Screen
 admin_screen:
