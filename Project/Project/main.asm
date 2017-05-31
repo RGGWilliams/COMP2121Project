@@ -110,6 +110,8 @@
 	Item7: .byte 2
 	Item8: .byte 2
 	Item9: .byte 2
+	currPress: .byte 1
+	wasPress: .byte 1
 
 .cseg
 .org 0x0000
@@ -134,6 +136,10 @@ RESET:
 	;Keypad
 	ldi temp1, PORTLDIR ; PL7:4/PL3:0, out/in
 	sts DDRL, temp1	
+
+	clr temp1
+	sts currPress, temp1
+	sts wasPress, temp1
 
 	;LEDs
 	ser temp1	;set PORTC (LEDs) as output
@@ -197,9 +203,11 @@ RESET:
 	clear Item8
 	clear Item9
 
+	;Keypad
+
 	;TODO other parts
 
-	rjmp main
+	jmp main
 
 ;INTERRUPTS-----------------------------------------------------
 ;Button Interrupts-----------
@@ -316,6 +324,8 @@ Timer0OVF:
 		cpi current_screen, 2
 		breq empty_timer
 
+		rjmp ENDIF
+
 		;cpi r24, low(7812) 
 		;ldi temp, high(7812)
 		;cpc r25, temp
@@ -394,10 +404,7 @@ Timer0OVF:
 		ldi r25, high(23436)
 		cpc r25, temp1			;check to see if 3 seconds has passed
 		brne NotThreeSecondsEmpty
-		clr temp1				;if 3 seconds has passed turn off leds and go back to select screen
-		out PORTC, temp1
-		out PORTG, temp1
-		rjmp select_screen
+		jmp select_screen
 
 		new_empty_timer:
 			ldi new_screen_flag, 0	;not a new screen anymore
@@ -405,15 +412,18 @@ Timer0OVF:
 			rjmp EndIF
 
 		NotHalfThreeSeconds:
+			ser temp1
+			out PORTC, temp1		;turn on all port C LEDs
+			ldi temp1, 0b00110000
+			out PORTG, temp1		;turn on the 2 port G LEDs
 			sts TempCounter, r24	;Store the new value of the temporary counter
 			sts TempCounter+1, r25
 			rjmp EndIF
 			
 		NotThreeSecondsEmpty:
-			ser temp1
-			out PORTC, temp1		;turn on all port C LEDs
-			ldi temp1, 0b00110000
-			out PORTG, temp1		;turn on the 2 port G LEDs
+			clr temp1				;if 3 seconds has passed turn off leds and go back to select screen
+			out PORTC, temp1
+			out PORTG, temp1
 			sts TempCounter, r24
 			sts TempCounter+1, r25
 			rjmp EndIF
@@ -430,53 +440,71 @@ EndIF:
 
 
 main:					;initial column
-	rcall start_screen
+	call start_screen
+
+keypad_prologue:
+	ldi cmask, INITCOLMASK
+	clr col
+	rjmp colloop
+
+keysScanned:
+	ldi temp1, 0 									; set currPress = 0
+	sts currPress, temp1
+	mov star_pressed, temp1
+	rjmp keypad_prologue
 
 colloop:
-	col_prologue_empty:
-		ldi temp1, 0
-		mov star_pressed, temp1
-	col_prologue:
-		ldi cmask, INITCOLMASK
-		clr col
-	cpi col, 4
-	breq col_prologue_empty ; If all keys are scanned, repeat. And star is not pressed anymore
-	sts PORTL, cmask ; Otherwise, scan a column.
+	cpi col, 4 										; compare current column # to total # columns
+	breq keysScanned								; if all keys are scanned, repeat
+	sts PORTL, cmask								; otherwise, scan a column
 
-	ldi temp1, 0xFF ; Slow down the scan operation.
-
-delay: 
+	ldi temp1, 0xFF									; slow down the scan operation to debounce button press
+	delay:
 	dec temp1
-	brne delay ;until temp 1 is zero we delay
+	brne delay
+	rcall sleep_20ms
 
-	lds temp1, PINL ; Read PORTA
-	andi temp1, ROWMASK ; Get the keypad output value
-	cpi temp1, 0xF ; Check if any row is low
-	breq nextcol
+	lds temp1, currPress 							; if currPress = 0, set wasPress = 0
+	cpi temp1, 1
+	brne notPressed
+	ldi temp1, 1									; set wasPress = 1
+	sts wasPress, temp1
+	rjmp scan
+	notPressed:
+		ldi temp1, 0 								; set wasPress = 0
+		rcall sleep_5ms
+		sts wasPress, temp1
 
-	; If yes, find which row is low
-	ldi rmask, INITROWMASK ; Initialize for row check
-	clr row ; 
+	scan:
+	lds temp1, PINL									; read PORTL
+	andi temp1, ROWMASK								; get the keypad output value
+	cpi temp1, 0xF0 								; check if any row is low (0)
+	breq rowloop									; if yes, find which row is low
+	ldi rmask, INITROWMASK							; initialize rmask with 0000 0001 for row check
+	clr row
 
 rowloop:
-	cpi row, 4
-	breq nextcol ; the row scan is over.
+	cpi row, 4 										; compare current value of row with total number of rows (4)
+	breq nextcol									; if theyre equal, the row scan is over.
+	mov temp2, temp1 								; temp1 is 0xF
+	and temp2, rmask 								; check un-masked bit
+	breq convert 									; if bit is clear, the key is pressed
+	inc row 										; else move to the next row
+	lsl rmask 										; shift row mask left by one
+	rjmp rowloop
 
-	mov temp2, temp1
-	and temp2, rmask ; check un-masked bit
-	breq convert ; if bit is clear, the key is pressed
-
-	inc row ; else move to the next row
-	lsl rmask
-	
-	jmp rowloop
-
-nextcol: ; if row scan is over
-	lsl cmask
-	inc col ; increase column value
-	jmp colloop ; go to the next column
+nextcol:											; if row scan is over
+	lsl cmask 										; shift column mask left by one
+	inc col 										; increase column value
+	rjmp colloop
 
 convert:
+	ldi temp1, 1
+	sts currPress, temp1		;if wasPress = 1 ignore the press
+	lds temp1, wasPress
+	cpi temp1, 1
+	breq keypad_prologue
+
 	cpi current_screen, 0	;if the current screen is the start screen a button pressed means it should go to the next screen
 	breq button_pressed
 
@@ -484,16 +512,22 @@ convert:
 	breq letters ; we have a letter
 					; If the key is not in col.3 and
 	cpi row, 3 ; If the key is in row3,
-	breq symbols ; we have a symbol or 0
+	breq symbols_hop ; we have a symbol or 0
+
+	rjmp numbers
+
+symbols_hop:
+	jmp symbols
 
 button_pressed:
-	rjmp select_screen
+	jmp select_screen
 
 numbers: ;else its a number (NOT ZERO)
 	mov temp1, row ; Otherwise we have a number in 1-9
 	lsl temp1
 	add temp1, row
 	add temp1, col ; temp1 = row*3 + col
+	inc temp1
 	;temp1 now has the value of the button pushed
 	numbers_computed:
 		cpi current_screen, 1	;check if the current screen is the select screen
@@ -502,7 +536,7 @@ numbers: ;else its a number (NOT ZERO)
 		cpi current_screen, 5	;check if current screen is admin
 		breq numbers_admin
 
-	jmp convert_end
+	jmp keypad_prologue
 
 	numbers_select:
 		mov current_item, temp1
@@ -522,7 +556,7 @@ empty_hop:
 letters:
 	cpi current_screen, 5	;check if current screen is admin
 	breq letters_admin
-	jmp convert_end
+	jmp keypad_prologue
 
 	letters_admin:
 		cpi row, 0
@@ -570,31 +604,28 @@ symbols:
 	cpi current_screen, 5 ;check for admin screen
 	breq symbols_admin
 
-	rjmp convert_end
+	jmp keypad_prologue
 
 	symbols_select:
 		cpi col, 0
-		brne col_prologue_hop
+		brne keypad_prologue_hop
 		ldi temp1, 1
 		mov star_pressed, temp1
-		rjmp col_prologue	;jumping to col_prologue instead of the others will ensure star_pressed stays at 1 until whole column is searched empty
+		rjmp keypad_prologue	;jumping to col_prologue instead of the others will ensure star_pressed stays at 1 until whole column is searched empty
 
 	symbols_admin:
 		cpi col, 2	;check to see if # pressed
-		brne convert_end
+		brne keypad_prologue_hop
 		rjmp select_screen	;if pressed go to select_screen
 
-col_prologue_hop:
-	jmp col_prologue
+keypad_prologue_hop:
+	jmp keypad_prologue
 
 zero:
-	ldi temp1, 0 ; Set to zero
-	rjmp numbers_computed
+	;ldi temp1, 0 ; Set to zero
+	;rjmp numbers_computed
 	;TODO zero handling for each screen
-	jmp convert_end
-
-convert_end:
-	jmp colloop ; Restart main loop
+	jmp keypad_prologue
 
 ;LCD Commands-----------------------------------------------------------------------------------
 lcd_command:
@@ -684,7 +715,7 @@ get_item:
 		dec temp1
 		rjmp get_item_loop
 	end_item_count:
-		reti
+		ret
 
 set_item:
 	ldi YH, high(Item1)
@@ -700,7 +731,8 @@ set_item:
 	end_item_set:
 		st Y+, tempcount
 		st Y+, tempcost
-		reti
+		ret
+
 
 
 
@@ -748,7 +780,7 @@ start_screen:
 	do_lcd_data 'n'
 	do_lcd_data 'e'
 	rcall starting_inventory
-	reti
+	ret
 
 starting_inventory:
 	ldi temp1, 1
@@ -789,7 +821,7 @@ starting_cost_even:
 		inc temp1
 		rjmp starting_cost_even_loop
 starting_done:
-	reti
+	ret
 
 ;Select Screen-----------------
 ;Pressing 1-9 should try to retrieve the corresponding item, if in inventory -> coin screen else -> empty screen
@@ -810,7 +842,7 @@ select_screen:
 	do_lcd_data 'e'
 	do_lcd_data 'm'
 
-	rjmp col_prologue
+	jmp keypad_prologue
 	;all handling in button areas
 
 
@@ -837,8 +869,6 @@ empty_screen:
 	do_lcd_data 'k'
 	do_lcd_command LCD_SEC_LINE
 
-	ldi temp1, LCD_SEC_LINE
-	mov address, temp1
 	mov temp1, current_item
 	rcall write_digits		;write out current_item
 	empty_loop:
@@ -909,7 +939,7 @@ admin_screen:
 		do_lcd_data '$'
 		mov temp1, tempcost
 		call write_digits
-		rjmp col_prologue		;check for button pushing
+		jmp keypad_prologue		;check for button pushing
 
 		show_inventory:		;Function to show inventory on leds
 			clr temp2			;temp2 will be what to be shown on leds
@@ -936,7 +966,7 @@ admin_screen:
 
 			show_inventory_done:
 				out PORTC, temp2
-				reti
+				ret
 				
 
 		
