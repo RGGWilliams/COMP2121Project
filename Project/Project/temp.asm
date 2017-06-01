@@ -26,6 +26,9 @@
 .def address = r15
 .def coins_needed = r9
 .def new_star_flag = r8
+.def interrupt_counter = r7
+.def adc_L = r4
+.def adc_H = r5
 
 
 ;Constants----------------------------
@@ -58,11 +61,13 @@
 ;Macros-------------------------------------------------------------------
 
 .macro clear
+	push temp1
 	ldi YL, low(@0)     ; load the memory address to Y
     ldi YH, high(@0)
     clr temp1 
     st Y+, temp1        ; clear the two bytes at @0 in SRAM
     st Y, temp1
+	pop temp1
 .endmacro
 
 ; LCD Macros-----------------
@@ -100,7 +105,7 @@
 .endmacro
 
 ;DSEG and CSEG ---------------------------------------------------------
-.dseg
+.dseg 
 	TempCounter: .byte 2
 	TempCounter1: .byte 2
 	DebounceCounter: .byte 2	;Used to determine if 50ms has passed for push button pressing
@@ -121,14 +126,18 @@
 	jmp RESET
 .org INT0addr
 	jmp EXT_INT0		;Handling for IRQ0 (button pushed)
-.org INT1addr
 	jmp EXT_INT1	;Handling for IRQ1 (button pushed)
-.org INT2addr
-	jmp EXT_INT2    ;Handling for Potentiometer
+
+	jmp DEFAULT
+	jmp DEFAULT
+	jmp DEFAULT    ;Handling for Potentiometer
 	jmp DEFAULT		;Handling for IRQ2
 .org OVF0addr
 	jmp Timer0OVF	;Handling for Timer 0 overflow
+.org OVF1addr
 	jmp Timer1OVF	;Handling for Timer 1 overflow
+.org ADCCADDR
+	jmp ADC_ISR
 jmp DEFAULT			;Handling for all other interrupts
 
 ;DEFAULT AND RESET --------------------------------------------
@@ -152,26 +161,33 @@ RESET:
 	;LEDs
 	ser temp1	;set PORTC (LEDs) as output
 	out DDRC, temp1
-	ldi temp1, 0b00110000	;set PG2 and PG3 as output (the other LEDs)
+	ser temp1	;set PG2 and PG3 as output (the other LEDs)
 	out DDRG, temp1
 
 	;Button interrupt
+	clear DebounceCounter
+	clr DebounceFlag0
+	clr DebounceFlag1
+	ldi temp1, 1
+	mov current_item, temp1
+
+	sei
+
+
 	ldi temp1, (2<<ISC00)	;set INT0 as falling-edge interrupt
 	sts EICRA, temp1
 	in temp1, EIMSK	;enable INT0
 	ori temp1, (1<<INT0)
 	out EIMSK, temp1
 
+	sei
+
 	ldi temp1, (2<<ISC10)	;set INT1 as falling-edge interrupt
 	sts EICRA, temp1
 	in temp1, EIMSK			;enable INT1
 	ori temp1, (1<<INT1)
 	out EIMSK, temp1
-
-	clear DebounceCounter
-	clr debounceFlag0
-	clr debounceFlag1
-
+	
 	sei
 
 	;Timer Interrupt
@@ -180,7 +196,7 @@ RESET:
 	
 	ldi temp1, 0b00000000
 	out TCCR0A, temp1
-	ldi temp1, 0b00000010	;set prescaler to 8 = 128 ms
+	ldi temp1, (2<<CS00)	;set prescaler to 8 = 128 ms
 	out TCCR0B, temp1
 	ldi temp1, (1<<TOIE0)
 	sts TIMSK0, temp1
@@ -219,15 +235,21 @@ RESET:
 	clear Item9
 
 	;Keypad
+	;Potentiometer - connected to PK2
+	sei
+	;initialise to read 
+	ldi temp1, (3<<REFS0)|(0<<ADLAR)|(0<<MUX0)
+	sts ADMUX, temp1
+	ldi temp1, (1<<MUX5)
+	sts ADCSRB, temp1
+	ldi temp1, (1<<ADEN)|(1<<ADSC)|(1<<ADIE)|(5<<ADPS0) 
+	sts ADCSRA, temp1
 	
-	;Potentiometer - connected to INT2
-	ldi temp1, (2 << ISC20) 					; set INT2 to trigger on rising edge between two INTn
-	sts EICRA, temp1
-	ldi temp1, (1 << INT2) 							; enable INT2
-	out EIMSK, temp1
-
 	clr coins_needed
+	clr interrupt_counter
 
+	;motor
+	sei 
 	ser temp1
 	out DDRE, temp1
 
@@ -236,11 +258,15 @@ RESET:
 	ldi temp1, 0b00000010	;set prescaler to 8 = 128 ms
 	sts TCCR1B, temp1
 
+	;speaker 
+	ldi temp1, 0b00000001
+	out DDRB, temp1
 
-	jmp start_screen
+	rjmp start_screen
 
-halt:
-	rjmp halt
+	loop:
+		rjmp loop
+
 
 ;INTERRUPTS-----------------------------------------------------
 ;Button Interrupts-----------
@@ -249,9 +275,6 @@ EXT_INT0:						;Right button
 	push temp2
 	in temp1, SREG
 	push temp1
-
-	clr temp1
-	out PORTC, temp1
 
 	cpi debounceFlag0, 1		;If flag is set end
 	breq END_INT
@@ -280,9 +303,6 @@ EXT_INT1:
 	push temp2
 	in temp1, SREG
 	push temp1
-
-	ser temp1
-	out PORTC, temp1
 
 	cpi debounceFlag1, 1		;If flag is set end
 	breq END_INT
@@ -324,6 +344,8 @@ Timer0OVF:
 	push temp1
 	push r25
 	push r24
+	push YH
+	push YL
 
 	cpi debounceFlag0, 1 ;if either flags have been set run debounce timer
 	breq new_bounce_timer
@@ -363,28 +385,12 @@ Timer0OVF:
 		breq select_timer
 
 		cpi current_screen, 2
-		breq empty_timer
+		breq empty_timer_hop
 
 		rjmp ENDIF
 
-		;cpi r24, low(7812) 
-		;ldi temp, high(7812)
-		;cpc r25, temp
-		;brne NotSecond
-		;TODO What to do after second has passed
-		;clear TempCounter
-
-		;lds r24, SecondCounter
-		;lds r25, SecoundCounter+1
-		;adiw r25:r24, 1		;Increase second counter by 1
-		;sts SecondCounter, r24
-		;sts SecondCounter+1, r25
-		;rjmp EndIF
-
-;NotSecond:
-	;sts TempCounter, r24	;Store the new value of the temporary counter
-	;sts TempCounter+1, r25
-	;rjmp EndIF
+	empty_timer_hop:
+	jmp empty_timer
 
 	start_timer:
 		cpi new_screen_flag, 1	;if screen has just been changed to start screen then start a new timer
@@ -394,6 +400,14 @@ Timer0OVF:
 		ldi temp1, high(23436)
 		cpc r25, temp1
 		brne NotThreeSeconds
+		pop YL
+		pop YH
+		pop r24
+		pop r25
+		pop temp1
+		out SREG, temp1
+		pop temp2
+		pop temp1
 		rjmp select_screen		;else if 3 seconds has passed jump to select screen
 
 		new_start_timer:
@@ -423,7 +437,15 @@ Timer0OVF:
 		clear TempCounter
 		ldi temp1, 5
 		cp second_counter, temp1	;if this is now 5 seconds then go to admin screen else
-		brne EndIF
+		brne EndIF_hop
+		pop YL
+		pop YH
+		pop r24
+		pop r25
+		pop temp1
+		out SREG, temp1
+		pop temp2
+		pop temp1
 		rjmp admin_screen
 
 		new_select_timer:
@@ -449,36 +471,45 @@ Timer0OVF:
 		ldi temp1, high(11718)
 		cpc r25, temp1
 		brne NotHalfThreeSeconds
+		clr temp1				;turn off all LEDs after 1.5 seconds
+		out PORTC, temp1
+		out PORTG, temp1
 		cpi r24, low(23436)	
 		ldi r25, high(23436)
 		cpc r25, temp1			;check to see if 3 seconds has passed
 		brne NotThreeSecondsEmpty
+		pop YL
+		pop YH
+		pop r24
+		pop r25
+		pop temp1
+		out SREG, temp1
+		pop temp2
+		pop temp1
 		jmp select_screen
 
 		new_empty_timer:
 			ldi new_screen_flag, 0	;not a new screen anymore
 			clear TempCounter	;start 'new' timer
+			ser temp1
+			out PORTC, temp1		;turn on all port C LEDs
+			out PORTG, temp1		;turn on the 2 port G LEDs
 			rjmp EndIF
 
 		NotHalfThreeSeconds:
-			ser temp1
-			out PORTC, temp1		;turn on all port C LEDs
-			ldi temp1, 0b00110000
-			out PORTG, temp1		;turn on the 2 port G LEDs
 			sts TempCounter, r24	;Store the new value of the temporary counter
 			sts TempCounter+1, r25
 			rjmp EndIF
 			
 		NotThreeSecondsEmpty:
-			clr temp1				;if 3 seconds has passed turn off leds and go back to select screen
-			out PORTC, temp1
-			out PORTG, temp1
 			sts TempCounter, r24
 			sts TempCounter+1, r25
 			rjmp EndIF
 
 
 EndIF:
+    pop YL
+	pop YH
 	pop r24
 	pop r25
 	pop temp1
@@ -651,7 +682,7 @@ symbols:
 	cpi current_screen, 1 ;check for select screen
 	breq symbols_select
 
-	cpi current_screen, 2 ;check for coin screen
+	cpi current_screen, 3 ;check for coin screen
 	breq symbols_coin
 
 	cpi current_screen, 5 ;check for admin screen
@@ -678,6 +709,8 @@ symbols:
 		cpi col, 2	;check to see if # pressed
 		brne keypad_prologue_hop
 		jmp CoinRet
+		;breq call_CoinRet
+		;jmp call_acd
 
 	symbols_admin:
 		cpi col, 2	;check to see if # pressed
@@ -739,6 +772,7 @@ lcd_wait_loop:
 	pop temp1
 	ret
 
+
 ; Delay commands
 
 sleep_1ms:
@@ -771,6 +805,7 @@ sleep_20ms:
 	rcall sleep_5ms
 	rcall sleep_5ms
 	ret
+
 
 get_item:
 	push temp1
@@ -897,7 +932,16 @@ starting_cost_even:
 		inc temp1
 		rjmp starting_cost_even_loop
 starting_done:
+	ldi temp1, 9
+	mov current_item, temp1
+	call get_item
+	ldi temp1, 0
+	mov tempcount, temp1
+	call set_item
 	ret
+
+;halt:
+;	rjmp halt
 
 ;Select Screen-----------------
 ;Pressing 1-9 should try to retrieve the corresponding item, if in inventory -> coin screen else -> empty screen
@@ -954,7 +998,9 @@ coin_screen:
 	ldi current_screen, 3
 	call get_item
 	mov coins_needed, tempcost
+
 	coin_screen_update:
+
 	do_lcd_command LCD_DISP_CLR
 		do_lcd_command LCD_HOME_LINE
 		do_lcd_data 'I'
@@ -970,25 +1016,82 @@ coin_screen:
 		do_lcd_data 'n'
 		do_lcd_data 's'
 		do_lcd_command LCD_SEC_LINE
+	
 		mov temp1, coins_needed
-
-		rcall write_digits    		;write intial tmp cost
-
+		rcall write_digits    		;write  tmp cost
 		jmp keypad_prologue			;check for # to be pressed
+
+
+    ADC_ISR:
+    	push temp1
+		in temp1, SREG
+		push temp1
+		push adc_L
+		push adc_H
+		push interrupt_counter
+
+		lds adc_L, ADCL		
+		lds adc_H, ADCH
+		
+
+		ldi temp1, 1
+		cp interrupt_counter, temp1
+		breq check_max
+
+		ldi temp1, low(0)
+		cp adc_L, temp1		; check whether interrupt reads 0
+		ldi temp1, high(0)
+		cpc adc_H, temp1
+		brne adc_end
+		inc interrupt_counter
+		rjmp check_coin		
+
+		check_max:
+			ldi temp1, low(0x3FF)				; check for max value 
+			cp adc_L, temp1	
+			ldi temp1, high(0x3FF)
+			cpc adc_H, temp1
+			brne adc_end
+			inc interrupt_counter
+			rjmp adc_end
+    
+	out PORTC,interrupt_counter
+
+	    check_coin:			; if interrupt_counter=3 then coin has been inserted 
+			ldi temp1, 3
+			cp interrupt_counter, temp1
+			;brne adc_end
+			breq coin_loop
+	    
+	 adc_end:
+	    pop interrupt_counter
+	    pop adc_H
+	    pop adc_L
+		pop temp1
+		out SREG, temp1
+		pop temp1
+		reti
+
      
-		EXT_INT2:										;dealing with the potentiometer
+		coin_loop:										;dealing with the potentiometer
 		    push temp1
-			
+			push interrupt_counter
+			push coins_needed
+
+			clr interrupt_counter
 		    dec coins_needed
-		    ;mov temp1, coins_needed
-		    ;rcall write_digits
 			ldi temp1, 0
 		    cp coins_needed, temp1
 		    breq go_deliver_screen
+
+			pop coins_needed
+			pop interrupt_counter
 			pop temp1
 			rjmp coin_screen_update
 
 			go_deliver_screen:
+			    pop coins_needed
+				pop interrupt_counter
 				pop temp1
 				jmp deliver_screen
 		
@@ -1008,10 +1111,11 @@ coin_screen:
 		    	    pop temp1
 					jmp select_screen
 
+
 ;Deliver Screen
 deliver_screen:
 	ldi current_screen, 4
-	ldi new_screen_flag, 1
+
 	do_lcd_command LCD_DISP_CLR
 		do_lcd_command LCD_HOME_LINE
 		do_lcd_data 'D'
@@ -1036,6 +1140,7 @@ deliver_screen:
 		rjmp Timer1OVF
 
 ;Motor Control -------------------------------------------------
+
 
 startMotor:
 	push temp1
@@ -1165,6 +1270,9 @@ Timer1OVF:						; interrupt subroutine to Timer1
 		reti 	
 
 
+	
+
+
 ;Admin Screen
 admin_screen:
 	ldi current_screen, 5
@@ -1209,9 +1317,10 @@ admin_screen:
 			mov temp1, tempcount	
 			cpi temp1, 9		;check to see if need to show on PORTG LEDs as well
 			brlo show_inventory_C_loop
+			cpi temp1, 9
 			breq show_9
 			ldi temp1, 8		;else must be 10 and have 8 remaining leds to show on PORTC
-			ldi temp2, 0b00110000	;show both PORTG LEDs
+			ser temp2	;show both PORTG LEDs
 			out PORTG, temp2	
 			clr temp2
 			rjmp show_inventory_C_loop
@@ -1235,7 +1344,8 @@ admin_screen:
 
 		
 
-write_digits:										; writes value of temp1
+write_digits:	
+	push temp1									; writes value of temp1
 	cpi temp1, 10
 	brne write_ones
 
@@ -1245,5 +1355,6 @@ write_digits:										; writes value of temp1
 	write_ones:
 		subi temp1, -'0'
 		do_lcd_data_reg temp1
+		pop temp1
 		ret
 
